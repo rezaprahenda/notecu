@@ -4,6 +4,8 @@ import Foundation
 final class Prefs: ObservableObject {
     private let d = UserDefaults.standard
 
+    @Published var serverURL: String { didSet { d.set(serverURL, forKey: "serverURL") } }
+    @Published var token: String { didSet { d.set(token, forKey: "token") } }
     /// "right" atau "left"
     @Published var edge: String { didSet { d.set(edge, forKey: "edge") } }
     /// Buka panel saat kursor didorong ke tepi layar
@@ -21,6 +23,8 @@ final class Prefs: ObservableObject {
     @Published var vaultLockMinutes: Int { didSet { d.set(vaultLockMinutes, forKey: "vaultLockMinutes") } }
 
     init() {
+        serverURL = d.string(forKey: "serverURL") ?? ""
+        token = d.string(forKey: "token") ?? ""
         edge = d.string(forKey: "edge") ?? "right"
         hoverOpen = d.object(forKey: "hoverOpen") as? Bool ?? true
         panelWidth = d.object(forKey: "panelWidth") as? Double ?? 360
@@ -30,4 +34,22 @@ final class Prefs: ObservableObject {
         noteFont = d.string(forKey: "noteFont") ?? "sans"
         vaultLockMinutes = d.object(forKey: "vaultLockMinutes") as? Int ?? 5
     }
+
+    var isConfigured: Bool { baseURLString != nil && !token.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    /// Alamat server yang sudah dirapikan, misalnya "http://homeserver:8787"
+    var baseURLString: String? {
+        var s = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return nil }
+        if !s.contains("://") { s = "http://" + s }
+        while s.hasSuffix("/") { s.removeLast() }
+        return s
+    }
+
+    func apiURL(_ path: String) -> URL? {
+        guard let base = baseURLString else { return nil }
+        return URL(string: base + "/" + path)
+    }
+
+    var cleanToken: String { token.trimmingCharacters(in: .whitespacesAndNewlines) }
 }

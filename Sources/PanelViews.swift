@@ -182,14 +182,14 @@ struct HeaderBar: View {
                     .lineLimit(1)
                     .fixedSize()
             }
-            NoticeBadge(store: store)
+            SyncBadge(store: store)
             Spacer()
             IconButton(symbol: "chart.bar.doc.horizontal", help: "Ringkasan / laporan bulanan", active: ui.showSummary) {
                 ui.showSummary.toggle()
                 if ui.showSummary { ui.openID = nil; ui.openTaskID = nil }
             }
             IconButton(symbol: ui.filter == .trash ? "trash.fill" : "trash",
-                       help: "Sampah · \(store.count(.trash)) item (dihapus permanen setelah 30 hari)",
+                       help: L("Sampah · %lld item (dihapus permanen setelah 30 hari)", store.count(.trash)),
                        active: ui.filter == .trash) {
                 ui.filter = ui.filter == .trash ? .all : .trash
                 ui.openID = nil
@@ -209,14 +209,62 @@ struct HeaderBar: View {
     }
 }
 
-/// Pesan singkat di kepala panel (mis. "Tautan di 2 catatan ikut diganti").
-struct NoticeBadge: View {
+struct SyncBadge: View {
     @ObservedObject var store: NoteStore
 
-    var body: some View {
-        if let n = store.notice {
-            Text(n).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+    private var color: Color {
+        if store.notice != nil { return .orange }
+        switch store.status {
+        case .ok: return .green
+        case .saving, .connecting: return .orange
+        case .offline, .badToken: return .red
+        case .notConfigured: return .secondary
         }
+    }
+
+    /// Teks pendek di sebelah titik; kalau semua beres cukup titik hijau.
+    private var label: String {
+        if let n = store.notice { return n }
+        switch store.status {
+        case .ok: return ""
+        case .saving, .connecting: return L("Sync…")
+        case .offline: return store.pendingCount > 0 ? L("Offline · %lld", store.pendingCount) : L("Offline")
+        case .badToken: return L("Token?")
+        case .notConfigured: return ""
+        }
+    }
+
+    /// Keterangan lengkap saat kursor diarahkan ke titiknya.
+    private var detail: String {
+        switch store.status {
+        case .ok: return L("Tersinkron dengan server")
+        case .saving: return L("Menyimpan ke server…")
+        case .connecting: return L("Menghubungkan ke server…")
+        case .offline: return store.pendingCount > 0 ? L("Offline · %lld perubahan belum terkirim", store.pendingCount) : L("Offline · server tidak terjangkau")
+        case .badToken: return L("Token ditolak server — periksa di Pengaturan")
+        case .notConfigured: return ""
+        }
+    }
+
+    var body: some View {
+        // Tanpa server (sinkron tidak dipakai): cukup tampilkan pesan singkat kalau ada.
+        if store.status == .notConfigured {
+            if let n = store.notice {
+                Text(n).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+            }
+        } else {
+            dot
+        }
+    }
+
+    private var dot: some View {
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            if !label.isEmpty {
+                Text(label).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+            }
+        }
+        .help(store.notice ?? detail)
     }
 }
 
@@ -238,7 +286,7 @@ struct IconButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(help)
+        .help(L(help))
         .onHover { hover = $0 }
     }
 }
@@ -280,7 +328,7 @@ struct KindTabs: View {
             action()
         } label: {
             HStack(spacing: 4) {
-                Text(title).font(.system(size: 12.5, weight: .semibold))
+                Text(verbatim: L(title)).font(.system(size: 12.5, weight: .semibold))
                 if let count {
                     Text("\(count)").font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit()
                 }
@@ -290,7 +338,7 @@ struct KindTabs: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 5).padding(.vertical, 1)
                         .background(Capsule().fill(late > 0 ? Color.red : Color.orange))
-                        .help(late > 0 ? "\(late) terlambat" : "\(today) jatuh tempo hari ini")
+                        .help(late > 0 ? L("%lld terlambat", late) : L("%lld jatuh tempo hari ini", today))
                 }
             }
             .foregroundStyle(selected ? Color.primary : Color.secondary)
@@ -311,7 +359,7 @@ struct TaskFolderStrip: View {
 
     var body: some View {
         FlowLayout(spacing: 6, lineSpacing: 6) {
-            Chip(title: "Semua", color: .primary, count: store.openTasks().count, selected: ui.taskFolder == nil) { pick(nil) }
+            Chip(title: L("Semua"), color: .primary, count: store.openTasks().count, selected: ui.taskFolder == nil) { pick(nil) }
             ForEach(store.folders) { f in
                 let n = store.openTasks(folder: f.id).count
                 if n > 0 || ui.taskFolder == f.id {
@@ -348,7 +396,7 @@ struct FolderStrip: View {
         let all = store.folders
         let shown = visibleFolders(all)
         FlowLayout(spacing: 6, lineSpacing: 6) {
-            Chip(title: "Semua", color: .primary, count: store.count(.all), selected: ui.filter == .all) { select(.all) }
+            Chip(title: L("Semua"), color: .primary, count: store.count(.all), selected: ui.filter == .all) { select(.all) }
             ForEach(shown) { f in
                 if ui.renamingFolder == f.id {
                     TextField("Nama folder", text: $editName)
@@ -376,12 +424,12 @@ struct FolderStrip: View {
                 }
             }
             if all.count > limit {
-                Button(expanded ? "Ringkas" : "+\(all.count - shown.count) lainnya") { expanded.toggle() }
+                Button(expanded ? L("Ringkas") : L("+%lld lainnya", all.count - shown.count)) { expanded.toggle() }
                     .buttonStyle(.plain)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
                     .padding(.vertical, 4)
-                    .help(expanded ? "Tampilkan lebih sedikit folder" : "Tampilkan semua folder")
+                    .help(expanded ? L("Tampilkan lebih sedikit folder") : L("Tampilkan semua folder"))
             }
             if ui.addingFolder {
                 TextField("Nama folder", text: $newName)
@@ -406,7 +454,11 @@ struct FolderStrip: View {
                 .foregroundStyle(.secondary)
                 .help("Folder baru (klik kanan folder untuk ganti nama)")
             }
-            // Agenda harian: tahun = folder, bulan = sub-folder, dikelompokkan "2026 › Oktober"
+            // Agenda harian: tahun = folder, bulan = sub-folder, dikelompokkan "2026 › Oktober".
+            // Selama belum ada agenda, cukup satu chip "Agenda" supaya tempatnya tetap kelihatan.
+            if store.dailyYears.isEmpty {
+                Chip(title: L("Agenda"), color: store.agendaColor.color, count: 0, selected: ui.filter == .daily) { select(.daily) }
+            }
             ForEach(store.dailyYears, id: \.month) { y in
                 HStack(spacing: 4) {
                     Chip(title: y.month, color: store.agendaColor.color, count: y.count,
@@ -511,7 +563,7 @@ struct SearchField: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary).font(.system(size: 12))
-            TextField(placeholder, text: $ui.query)
+            TextField(L(placeholder), text: $ui.query)
                 .textFieldStyle(.plain)
                 .focused($focused)
                 .onSubmit(onSubmit)
@@ -530,18 +582,18 @@ struct SearchField: View {
 enum PeriodGroup {
     private static let monthFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "id_ID")
-        f.dateFormat = "MMMM yyyy"
+        f.locale = AppLang.locale
+        f.setLocalizedDateFormatFromTemplate("MMMMyyyy")
         return f
     }()
 
     static func title(_ d: Date) -> String {
         let cal = Calendar.current
-        if cal.isDateInToday(d) { return "Hari ini" }
-        if cal.isDateInYesterday(d) { return "Kemarin" }
+        if cal.isDateInToday(d) { return L("Hari ini") }
+        if cal.isDateInYesterday(d) { return L("Kemarin") }
         let days = cal.dateComponents([.day], from: cal.startOfDay(for: d), to: cal.startOfDay(for: Date())).day ?? 0
-        if days < 7 { return "7 hari terakhir" }
-        if cal.isDate(d, equalTo: Date(), toGranularity: .month) { return "Bulan ini" }
+        if days < 7 { return L("7 hari terakhir") }
+        if cal.isDate(d, equalTo: Date(), toGranularity: .month) { return L("Bulan ini") }
         return monthFormatter.string(from: d).capitalized
     }
 
@@ -570,7 +622,7 @@ struct NoteListView: View {
 
                 if ui.filter == .trash {
                     if store.count(.trash) > 0 {
-                        Button(confirmEmpty ? "Yakin?" : "Kosongkan") {
+                        Button(confirmEmpty ? L("Yakin?") : L("Kosongkan")) {
                             if confirmEmpty {
                                 store.emptyTrash()
                                 confirmEmpty = false
@@ -606,14 +658,14 @@ struct NoteListView: View {
                     }
 
                     Button(action: newNote) {
-                        Label(ui.filter == .daily ? "Agenda" : "Baru", systemImage: ui.filter == .daily ? "calendar.badge.plus" : "square.and.pencil")
+                        Label(ui.filter == .daily ? L("Agenda") : L("Baru"), systemImage: ui.filter == .daily ? "calendar.badge.plus" : "square.and.pencil")
                             .font(.system(size: 12, weight: .semibold))
                             .padding(.horizontal, 10).padding(.vertical, 6)
                             .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor))
                             .foregroundStyle(.white)
                     }
                     .buttonStyle(.plain)
-                    .help(ui.filter == .daily ? "Agenda baru hari ini (⌘D)" : "Catatan baru (⌘N)")
+                    .help(ui.filter == .daily ? L("Agenda baru hari ini (⌘D)") : L("Catatan baru (⌘N)"))
                 }
             }
             .padding(.horizontal, 12)
@@ -746,13 +798,13 @@ struct NoteListView: View {
             Divider()
             Button("Hapus permanen", role: .destructive) { store.purgeNote(n.id) }
         } else {
-            Button(n.isPinned ? "Lepas sematan" : "Sematkan") { store.setPinned(n.id, !n.isPinned) }
+            Button(n.isPinned ? L("Lepas sematan") : L("Sematkan")) { store.setPinned(n.id, !n.isPinned) }
             Menu("Warna penanda") { ColorMenuItems(store: store, note: n) }
             Menu("Pindah ke folder") {
                 Button("Tanpa folder") { store.move(n.id, to: nil) }
                 ForEach(store.folders) { f in Button(f.name ?? "Folder") { store.move(n.id, to: f.id) } }
             }
-            Button(n.isDaily ? "Lepas dari Agenda harian" : "Jadikan agenda hari ini") {
+            Button(n.isDaily ? L("Lepas dari Agenda harian") : L("Jadikan agenda hari ini")) {
                 store.setDaily(n.id, n.isDaily ? nil : DueDate.today())
             }
             Divider()
@@ -797,7 +849,6 @@ struct NoteListView: View {
 struct ColorMenuItems: View {
     @ObservedObject var store: NoteStore
     let note: Item
-    private static let names: [FolderColor: String] = [.amber: "Kuning", .coral: "Merah", .teal: "Hijau tosca", .blue: "Biru", .violet: "Ungu", .green: "Hijau"]
 
     var body: some View {
         Button { store.setNoteColor(note.id, nil) } label: {
@@ -806,7 +857,7 @@ struct ColorMenuItems: View {
         Divider()
         ForEach(FolderColor.allCases, id: \.self) { c in
             Button { store.setNoteColor(note.id, c) } label: {
-                if note.color == c.rawValue { Label(Self.names[c] ?? c.rawValue, systemImage: "checkmark") } else { Text(Self.names[c] ?? c.rawValue) }
+                if note.color == c.rawValue { Label(c.label, systemImage: "checkmark") } else { Text(verbatim: c.label) }
             }
         }
     }
@@ -888,7 +939,7 @@ struct EmptyState: View {
                 Text("Catatan yang dihapus disimpan di sini 30 hari sebelum hilang permanen.").foregroundStyle(.secondary)
             } else if !query.isEmpty {
                 Text("Tidak ada yang cocok").font(.system(size: 13, weight: .semibold))
-                Text("Tidak ada catatan berisi “\(query)”.").foregroundStyle(.secondary)
+                Text(verbatim: L("Tidak ada catatan berisi “%@”.", query)).foregroundStyle(.secondary)
             } else if hasAny {
                 Text("Folder ini masih kosong").font(.system(size: 13, weight: .semibold))
                 Text("Tekan Baru atau ⌘N untuk menulis di sini.").foregroundStyle(.secondary)
@@ -925,7 +976,7 @@ struct NoteRow: View {
         let folder = store.folderOf(note)
         let content = note.parts.body
         let checks = NoteText.checks(content)
-        let snippet = note.isLocked ? "🔒 Catatan terkunci" : NoteText.snippet(content)
+        let snippet = note.isLocked ? L("🔒 Catatan terkunci") : NoteText.snippet(content)
         Button(action: action) {
             HStack(alignment: .top, spacing: 9) {
                 RoundedRectangle(cornerRadius: 1.5)
@@ -943,11 +994,11 @@ struct NoteRow: View {
                     }
                     HStack(spacing: 8) {
                         if note.isTrashed {
-                            Text("Hilang dalam \(note.trashDaysLeft) hari")
+                            Text(verbatim: L("Hilang dalam %lld hari", note.trashDaysLeft))
                         } else {
                             Text(RelativeTime.string(note.updatedDate))
                             if checks.total > 0 {
-                                Text("\(checks.done)/\(checks.total) selesai")
+                                Text(verbatim: L("%lld/%lld selesai", checks.done, checks.total))
                                     .foregroundStyle(checks.done == checks.total ? Color.green : Color.secondary)
                             }
                             if showFolder, let folder { Text(folder.name ?? "") }
@@ -1015,10 +1066,10 @@ struct EditorView: View {
                     vault.withUnlocked {
                         if store.note(id)?.isLocked == true {
                             store.unlockNote(id)
-                            store.noteNotice("Kunci catatan dilepas")
+                            store.noteNotice(L("Kunci catatan dilepas"))
                         } else {
                             store.lockNote(id)
-                            store.noteNotice("Catatan dikunci")
+                            store.noteNotice(L("Catatan dikunci"))
                         }
                     }
                 }
@@ -1059,7 +1110,7 @@ struct EditorView: View {
                     let blank = note.isBlank
                     store.trashNote(note.id)
                     ui.openID = nil
-                    if !blank { store.noteNotice("Dipindahkan ke Sampah") }
+                    if !blank { store.noteNotice(L("Dipindahkan ke Sampah")) }
                 }
             }
             .padding(.horizontal, 8)
@@ -1073,7 +1124,7 @@ struct EditorView: View {
                 ReadView(store: store, note: note, editable: !locked, fontStyle: fontStyle, bodyOverride: locked ? plain : nil,
                          onOpenLink: { t in openLink(t) })
             } else {
-                TextField(note.isDaily ? "Topik agenda" : "Judul",
+                TextField(note.isDaily ? L("Topik agenda") : L("Judul"),
                           text: Binding(get: { note.parts.title },
                                         set: { store.setTitle(note.id, $0.replacingOccurrences(of: "\n", with: " ")) }),
                           axis: .vertical)
@@ -1123,11 +1174,11 @@ struct EditorView: View {
                 .id(note.id)
 
             HStack {
-                Text("Dibuat \(DueDate.longDate(note.createdDate)) · diubah \(RelativeTime.string(note.updatedDate))")
+                Text(verbatim: L("Dibuat %@ · diubah %@", DueDate.longDate(note.createdDate), RelativeTime.string(note.updatedDate)))
                     .lineLimit(1)
                 Spacer()
                 if locked { Label("Terenkripsi", systemImage: "lock.fill") }
-                Text("\(NoteText.wordCount(parts.title + " " + parts.body)) kata")
+                Text(verbatim: L("%lld kata", NoteText.wordCount(parts.title + " " + parts.body)))
             }
             .font(.system(size: 10.5))
             .foregroundStyle(.secondary)
@@ -1182,7 +1233,7 @@ struct LinkSuggestBar: View {
             }
             if !q.isEmpty && !exact {
                 Button { pick(q) } label: {
-                    Label("Buat “\(q)”", systemImage: "plus").lineLimit(1)
+                    Label(L("Buat “%@”", q), systemImage: "plus").lineLimit(1)
                         .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, 6).padding(.vertical, 3)
                         .contentShape(Rectangle())
@@ -1396,15 +1447,15 @@ struct TrashedNoteView: View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 IconButton(symbol: "chevron.left", help: "Kembali ke Sampah") { ui.openID = nil }
-                Text("Hilang dalam \(note.trashDaysLeft) hari")
+                Text(verbatim: L("Hilang dalam %lld hari", note.trashDaysLeft))
                     .font(.system(size: 11.5, weight: .medium)).foregroundStyle(.secondary)
                 Spacer()
                 Button("Pulihkan") {
                     store.restoreNote(note.id)
-                    store.noteNotice("Catatan dipulihkan")
+                    store.noteNotice(L("Catatan dipulihkan"))
                 }
                 .controlSize(.small)
-                Button(confirmPurge ? "Yakin?" : "Hapus permanen") {
+                Button(confirmPurge ? L("Yakin?") : L("Hapus permanen")) {
                     if confirmPurge {
                         store.purgeNote(note.id)
                         ui.openID = nil
@@ -1478,7 +1529,7 @@ struct ReadView: View {
             guard url.scheme == Vault.urlScheme else { return .systemAction }
             let payload = String(url.absoluteString.dropFirst(Vault.urlScheme.count + 1))
             Vault.shared.withUnlocked {
-                if let t = Vault.shared.open(payload) { show(t) } else { store.noteNotice("Tidak bisa dibuka dengan kata sandi ini") }
+                if let t = Vault.shared.open(payload) { show(t) } else { store.noteNotice(L("Tidak bisa dibuka dengan kata sandi ini")) }
             }
             return .handled
         })
@@ -1490,7 +1541,7 @@ struct ReadView: View {
                     Spacer(minLength: 4)
                     Button("Salin") {
                         Vault.shared.copy(r)
-                        store.noteNotice("Disalin · clipboard dibersihkan dalam 60 detik")
+                        store.noteNotice(L("Disalin · clipboard dibersihkan dalam 60 detik"))
                     }
                     Button { revealed = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
                 }
@@ -1544,7 +1595,7 @@ struct ReadView: View {
                 if editable {
                     Button("Jadikan to-do") {
                         if store.convertChecklistLine(note: note.id, line: i) != nil {
-                            store.noteNotice("Jadi to-do terkait")
+                            store.noteNotice(L("Jadi to-do terkait"))
                         }
                     }
                 }

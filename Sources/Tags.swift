@@ -233,7 +233,7 @@ struct TagToggleChip: View {
             .contentShape(Capsule())
             .onTapGesture { ui.showTags.toggle() }
             .onHover { hover = $0 }
-            .help(ui.showTags ? "Sembunyikan tag" : "Tampilkan \(n) tag")
+            .help(ui.showTags ? L("Sembunyikan tag") : L("Tampilkan %lld tag", n))
         }
     }
 }
@@ -286,7 +286,7 @@ struct TagStrip: View {
                     TagChip(tag: t, count: 0, selected: true, action: { ui.tag = nil })
                 }
                 if counts.count > limit {
-                    Button(expanded ? "Ringkas" : "+\(counts.count - shown.count) lainnya") { expanded.toggle() }
+                    Button(expanded ? L("Ringkas") : L("+%lld lainnya", counts.count - shown.count)) { expanded.toggle() }
                         .buttonStyle(.plain)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Color.accentColor)
@@ -328,7 +328,7 @@ struct TagEditor: View {
             FlowLayout(spacing: 5, lineSpacing: 5) {
                 ForEach(mine, id: \.self) { t in
                     TagChip(tag: t, onRemove: { store.removeTag(item.id, t) })
-                        .help(typed.contains(t) ? "Diketik sebagai #\(t) di catatan" : "")
+                        .help(typed.contains(t) ? L("Diketik sebagai #%@ di catatan", t) : "")
                 }
                 if adding {
                     TextField("tag", text: $text)
@@ -345,7 +345,7 @@ struct TagEditor: View {
                     Button {
                         adding = true
                     } label: {
-                        Text(mine.isEmpty ? "# Tambah tag" : "#")
+                        Text(verbatim: mine.isEmpty ? L("# Tambah tag") : "#")
                             .font(.system(size: 11, weight: .semibold))
                             .padding(.horizontal, 7).padding(.vertical, 3)
                             .background(Capsule().strokeBorder(Color.primary.opacity(0.18), style: StrokeStyle(lineWidth: 1, dash: [3, 2])))

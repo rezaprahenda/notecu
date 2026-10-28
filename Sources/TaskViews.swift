@@ -25,10 +25,10 @@ struct TaskListView: View {
 
             if open.isEmpty && doneAll.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(ui.query.isEmpty ? "Belum ada to-do" : "Tidak ada yang cocok").font(.system(size: 13, weight: .semibold))
+                    Text(verbatim: ui.query.isEmpty ? L("Belum ada to-do") : L("Tidak ada yang cocok")).font(.system(size: 13, weight: .semibold))
                     Text(ui.query.isEmpty
-                         ? "Ketik to-do di atas lalu Enter. Tulis besok, jumat, tgl 5, 10:00, ! (penting), atau #tag langsung di kalimatnya."
-                         : "Tidak ada to-do berisi “\(ui.query)”.")
+                         ? L("Ketik to-do di atas lalu Enter. Tulis besok, jumat, tgl 5, 10:00, ! (penting), atau #tag langsung di kalimatnya.")
+                         : L("Tidak ada to-do berisi “%@”.", ui.query))
                         .foregroundStyle(.secondary)
                 }
                 .font(.system(size: 12))
@@ -50,7 +50,7 @@ struct TaskListView: View {
                             } label: {
                                 HStack(spacing: 5) {
                                     Image(systemName: showDone ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .bold))
-                                    Text(allDone ? "Semua yang selesai" : "Selesai · 30 hari terakhir")
+                                    Text(verbatim: allDone ? L("Semua yang selesai") : L("Selesai · 30 hari terakhir"))
                                     Text("\(done.count)").foregroundStyle(.secondary).monospacedDigit()
                                 }
                                 .font(.system(size: 11, weight: .semibold))
@@ -73,7 +73,7 @@ struct TaskListView: View {
                                     ForEach(done) { t in TaskRow(store: store, ui: ui, task: t, showFolder: true) }
                                 }
                                 if doneAll.count > recentCount || allDone {
-                                    Button(allDone ? "Hanya 30 hari terakhir" : "Lihat semua yang selesai (\(doneAll.count))") { allDone.toggle() }
+                                    Button(allDone ? L("Hanya 30 hari terakhir") : L("Lihat semua yang selesai (%lld)", doneAll.count)) { allDone.toggle() }
                                         .buttonStyle(.link)
                                         .font(.system(size: 11.5))
                                         .frame(maxWidth: .infinity)
@@ -108,7 +108,7 @@ struct SectionHeader: View {
     var alert = false
     var body: some View {
         HStack(spacing: 6) {
-            Text(title).foregroundStyle(alert ? Color.red : Color.secondary)
+            Text(verbatim: L(title)).foregroundStyle(alert ? Color.red : Color.secondary)
             Text("\(count)").foregroundStyle(.secondary).monospacedDigit()
         }
         .font(.system(size: 11, weight: .semibold))
@@ -135,7 +135,7 @@ struct TaskRow: View {
                     .foregroundStyle(task.isDone ? Color.accentColor : (task.isImportant ? Color.orange : Color.secondary))
             }
             .buttonStyle(.plain)
-            .help(task.isDone ? "Tandai belum selesai" : "Tandai selesai")
+            .help(task.isDone ? L("Tandai belum selesai") : L("Tandai selesai"))
 
             Button {
                 ui.openID = nil
@@ -154,7 +154,7 @@ struct TaskRow: View {
                     }
                     HStack(spacing: 8) {
                         if task.isDone, let d = task.doneAt {
-                            Text("Selesai \(RelativeTime.string(Date(timeIntervalSince1970: d / 1000)))")
+                            Text(verbatim: L("Selesai %@", RelativeTime.string(Date(timeIntervalSince1970: d / 1000))))
                         } else if task.due != nil {
                             Label(DueDate.label(task), systemImage: "calendar")
                                 .foregroundStyle(overdue ? Color.red : Color.secondary)
@@ -194,8 +194,8 @@ struct TaskRow: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(hover ? 0.06 : 0)))
         .onHover { hover = $0 }
         .contextMenu {
-            Button(task.isDone ? "Tandai belum selesai" : "Tandai selesai") { store.toggleDone(task.id) }
-            Button(task.isImportant ? "Hapus tanda penting" : "Tandai penting") {
+            Button(task.isDone ? L("Tandai belum selesai") : L("Tandai selesai")) { store.toggleDone(task.id) }
+            Button(task.isImportant ? L("Hapus tanda penting") : L("Tandai penting")) {
                 store.updateTask(task.id) { $0.important = $0.isImportant ? nil : true }
             }
             Menu("Tenggat") {
@@ -345,7 +345,7 @@ struct DueChip: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            Text(title)
+            Text(verbatim: L(title))
                 .font(.system(size: 11, weight: .semibold))
                 .padding(.horizontal, 8).padding(.vertical, 3)
                 .background(Capsule().fill(selected ? Color.accentColor : Color.primary.opacity(0.07)))
@@ -369,7 +369,7 @@ struct FolderPicker: View {
         } label: {
             HStack(spacing: 5) {
                 Circle().fill(current.map { FolderColor.of($0.color).color } ?? Color.secondary.opacity(0.4)).frame(width: 7, height: 7)
-                Text(current?.name ?? "Tanpa folder").font(.system(size: 11.5))
+                Text(verbatim: current?.name ?? L("Tanpa folder")).font(.system(size: 11.5))
             }
         }
         .menuStyle(.borderlessButton)
@@ -394,14 +394,14 @@ struct TaskDetailView: View {
                     Button("Hapus permanen") { store.purgeNote(task.id); ui.openTaskID = nil }
                         .controlSize(.small)
                 } else {
-                    Button(task.isDone ? "Belum selesai" : "Tandai selesai") { store.toggleDone(task.id) }
+                    Button(task.isDone ? L("Belum selesai") : L("Tandai selesai")) { store.toggleDone(task.id) }
                         .buttonStyle(.borderedProminent)
                         .tint(task.isDone ? .secondary : .accentColor)
                         .controlSize(.small)
                     IconButton(symbol: "trash", help: "Pindahkan ke Sampah", role: .destructive) {
                         store.trashNote(task.id)
                         ui.openTaskID = nil
-                        store.noteNotice("To-do dipindahkan ke Sampah")
+                        store.noteNotice(L("To-do dipindahkan ke Sampah"))
                     }
                 }
             }
@@ -451,7 +451,7 @@ struct TaskDetailView: View {
                                 }
                             })) {
                             ForEach(Recur.options(for: task), id: \.self) { o in
-                                Text(o.isEmpty ? "Tidak" : (o == "weekdays" ? "Tiap hari kerja (Sen–Jum)" : Recur.label(o))).tag(o)
+                                Text(verbatim: o.isEmpty ? L("Tidak") : (o == "weekdays" ? L("Tiap hari kerja (Sen–Jum)") : Recur.label(o))).tag(o)
                             }
                         }
                         .labelsHidden()
@@ -487,7 +487,7 @@ struct TaskDetailView: View {
                             ui.readMode = true
                             ui.openID = src.id
                         } label: {
-                            Label("Dari catatan: \(src.displayTitle)", systemImage: "doc.text")
+                            Label(L("Dari catatan: %@", src.displayTitle), systemImage: "doc.text")
                                 .font(.system(size: 12))
                         }
                         .buttonStyle(.link)
@@ -497,9 +497,9 @@ struct TaskDetailView: View {
             }
 
             HStack {
-                Text("Dibuat \(DueDate.longDate(task.createdDate))")
+                Text(verbatim: L("Dibuat %@", DueDate.longDate(task.createdDate)))
                 Spacer()
-                if let d = task.doneAt { Text("Selesai \(DueDate.longDate(Date(timeIntervalSince1970: d / 1000)))") }
+                if let d = task.doneAt { Text(verbatim: L("Selesai %@", DueDate.longDate(Date(timeIntervalSince1970: d / 1000)))) }
             }
             .font(.system(size: 10.5))
             .foregroundStyle(.secondary)
@@ -514,7 +514,7 @@ struct LabeledRow<Content: View>: View {
     @ViewBuilder let content: () -> Content
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(label).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary).frame(width: 56, alignment: .leading)
+            Text(verbatim: L(label)).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary).frame(width: 64, alignment: .leading)
             content()
             Spacer(minLength: 0)
         }

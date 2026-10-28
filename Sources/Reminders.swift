@@ -58,7 +58,7 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
             for (task, fire) in next {
                 let content = UNMutableNotificationContent()
                 content.title = task.displayTitle
-                content.body = task.dueTime != nil ? "Jatuh tempo \(DueDate.label(task))" : "Jatuh tempo hari ini"
+                content.body = task.dueTime != nil ? L("Jatuh tempo %@", DueDate.label(task)) : L("Jatuh tempo hari ini")
                 content.sound = .default
                 content.userInfo = ["taskId": task.id]
                 let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fire)

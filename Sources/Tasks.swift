@@ -1,7 +1,7 @@
 import Foundation
 
 /// Tanggal tenggat disimpan sebagai tanggal lokal "yyyy-MM-dd" (+ jam "HH:mm" opsional),
-/// supaya tidak bergeser karena zona waktu.
+/// sama seperti di web app, supaya tidak bergeser karena zona waktu.
 enum DueDate {
     static var cal: Calendar { Calendar.current }
 
@@ -21,19 +21,19 @@ enum DueDate {
     }()
     private static let shortFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "id_ID")
+        f.locale = AppLang.locale
         f.setLocalizedDateFormatFromTemplate("EEE d MMM")
         return f
     }()
     private static let longFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "id_ID")
+        f.locale = AppLang.locale
         f.setLocalizedDateFormatFromTemplate("d MMM yyyy")
         return f
     }()
     private static let dailyFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "id_ID")
+        f.locale = AppLang.locale
         f.dateFormat = "EEEE, d MMMM yyyy"
         return f
     }()
@@ -72,10 +72,10 @@ enum DueDate {
         guard let due = task.due, let days = daysFromToday(due), let d = date(due) else { return "" }
         let base: String
         switch days {
-        case 0: base = "Hari ini"
-        case 1: base = "Besok"
-        case -1: base = "Kemarin"
-        case let n where n < -1 && n > -7: base = "\(-n) hari lalu"
+        case 0: base = L("Hari ini")
+        case 1: base = L("Besok")
+        case -1: base = L("Kemarin")
+        case let n where n < -1 && n > -7: base = L("%lld hari lalu", -n)
         default: base = cal.component(.year, from: d) == cal.component(.year, from: Date()) ? shortFormatter.string(from: d) : longFormatter.string(from: d)
         }
         if let t = task.dueTime { return base + " " + t }
@@ -98,12 +98,12 @@ enum TaskGroup: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .overdue: return "Terlambat"
-        case .today: return "Hari ini"
-        case .tomorrow: return "Besok"
-        case .week: return "7 hari ke depan"
-        case .later: return "Nanti"
-        case .noDate: return "Tanpa tanggal"
+        case .overdue: return L("Terlambat")
+        case .today: return L("Hari ini")
+        case .tomorrow: return L("Besok")
+        case .week: return L("7 hari ke depan")
+        case .later: return L("Nanti")
+        case .noDate: return L("Tanpa tanggal")
         }
     }
 
@@ -206,7 +206,7 @@ extension NoteStore {
                 copy.trashedAt = nil
                 commit(copy)
                 spawned = copy.id
-                noteNotice("Berikutnya: \(DueDate.label(copy)) · \(Recur.label(rule))")
+                noteNotice(L("Berikutnya: %@ · %@", DueDate.label(copy), Recur.label(rule)))
             }
             linger(id, spawned: spawned, recur: rule)
             updateTask(id) { $0.doneAt = nowMillis(); $0.recur = nil }
@@ -240,7 +240,7 @@ extension NoteStore {
             t.doneAt = nil
             if let r = l.recur { t.recur = r }
         }
-        noteNotice("Dibatalkan")
+        noteNotice(L("Dibatalkan"))
     }
 
     /// Ubah butir checklist di catatan menjadi tugas; butir itu dihapus dari catatan.
@@ -286,7 +286,7 @@ extension NoteStore {
 }
 
 /// Kalimat to-do: "Surati Kapusdatin besok 10:00 ! #kementan" → judul + tenggat + jam + penting + tag.
-/// Kata yang dikenali dibuang dari judul.
+/// Aturannya sama dengan parseTodo di web app. Kata yang dikenali dibuang dari judul.
 struct TodoParser {
     var title = ""
     var due: String?
@@ -369,6 +369,86 @@ struct TodoParser {
         take(#"\s(?:se)?tiap\s+minggu(?=\s)"#) { _ in recur = "weekly:?"; return true }
         take(#"\s(?:se)?tiap\s+bulan(?=\s)"#) { _ in recur = "monthly:?"; return true }
         take(#"\s(?:se)?tiap\s+hari(?=\s)"#) { _ in recur = "daily"; return true }
+        // ---- English (selalu dikenali, apa pun bahasa app) ----
+        let enDays = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+        func ampm(_ h: String?, _ m: String?, _ ap: String?) -> String? {
+            guard var hh = Int(h ?? ""), (1...12).contains(hh) || ap == nil else { return nil }
+            let p = (ap ?? "").lowercased()
+            if p == "pm" && hh < 12 { hh += 12 }
+            if p == "am" && hh == 12 { hh = 0 }
+            return hm(String(hh), m)
+        }
+        take(#"\severy\s+weekday(?=\s)"#) { _ in recur = "weekdays"; return true }
+        take(#"\severy\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)(?=\s)"#) { m in
+            if let d = enDays.firstIndex(of: (m[1] ?? "").lowercased()) { recur = "weekly:\(d)" }
+            return true
+        }
+        take(#"\severy\s+month\s+on\s+the\s+(\d{1,2})(?:st|nd|rd|th)?(?=\s)|\severy\s+(\d{1,2})(?:st|nd|rd|th)(?=\s)"#) { m in
+            if let d = Int(m[1] ?? m[2] ?? ""), (1...31).contains(d) { recur = "monthly:\(d)" }
+            return true
+        }
+        take(#"\severy\s+week(?=\s)"#) { _ in recur = "weekly:?"; return true }
+        take(#"\severy\s+month(?=\s)"#) { _ in recur = "monthly:?"; return true }
+        take(#"\severy\s+day(?=\s)"#) { _ in recur = "daily"; return true }
+        take(#"\stonight(?=\s)"#) { _ in
+            if due == nil { due = today }
+            if dueTime == nil { dueTime = "19:00" }
+            return true
+        }
+        take(#"\s(?:the\s+)?day\s+after\s+tomorrow(?=\s)"#) { _ in if due == nil { due = DueDate.inDays(2) }; return true }
+        take(#"\stoday(?=\s)"#) { _ in if due == nil { due = today }; return true }
+        take(#"\s(?:tomorrow|tmrw?)(?=\s)"#) { _ in if due == nil { due = DueDate.inDays(1) }; return true }
+        take(#"\snext\s+week(?=\s)"#) { _ in if due == nil { due = DueDate.nextWeek() }; return true }
+        take(#"\s(?:by\s+)?(?:the\s+)?end\s+of\s+(?:the\s+)?month(?=\s)"#) { _ in if due == nil { due = addMonths(0, day: 31) }; return true }
+        take(#"\s(?:start\s+of\s+|beginning\s+of\s+)?next\s+month(?=\s)"#) { _ in if due == nil { due = addMonths(1, day: 1) }; return true }
+        take(#"\s(?:by\s+)?(?:the\s+)?end\s+of\s+(?:the\s+)?week(?=\s)"#) { _ in
+            if due == nil {
+                let todayDow = Self.cal.component(.weekday, from: now) - 1
+                due = DueDate.inDays((5 - todayDow + 7) % 7)
+            }
+            return true
+        }
+        take(#"\sin\s+(?:(\d{1,3})|an?)\s+(days?|weeks?|months?)(?=\s)"#) { m in
+            guard due == nil else { return true }
+            let n = Int(m[1] ?? "") ?? 1
+            let unit = (m[2] ?? "").lowercased()
+            if unit.hasPrefix("day") { due = DueDate.inDays(n) }
+            else if unit.hasPrefix("week") { due = DueDate.inDays(7 * n) }
+            else { due = addMonths(n, day: Self.cal.component(.day, from: now)) }
+            return true
+        }
+        take(#"\s(?:on\s+)?(next\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)(?=\s)"#) { m in
+            guard due == nil, let dow = enDays.firstIndex(of: (m[2] ?? "").lowercased()) else { return true }
+            let todayDow = Self.cal.component(.weekday, from: now) - 1
+            var diff = (dow - todayDow + 7) % 7
+            if diff == 0 && m[1] != nil { diff = 7 }
+            due = DueDate.inDays(diff)
+            return true
+        }
+        take(#"\s(?:on\s+)?the\s+(\d{1,2})(?:st|nd|rd|th)(?=\s)|\son\s+the\s+(\d{1,2})(?=\s)|\son\s+(\d{1,2})(?:st|nd|rd|th)(?=\s)"#) { m in
+            guard due == nil, let d = Int(m[1] ?? m[2] ?? m[3] ?? "") else { return true }
+            var r = dayIn(year, month0, d)
+            if let x = r, x < today { r = dayIn(year, month0 + 1, d) }
+            due = r
+            return true
+        }
+        take(#"\s(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s?(am|pm)(?=\s)"#) { m in
+            if let t = ampm(m[1], m[2], m[3]) { dueTime = t }
+            return true
+        }
+        take(#"\sat\s+(\d{1,2})(?::(\d{2}))?(?=\s)"#) { m in
+            // "at 3" tanpa am/pm: jam kerja, jadi 1–6 dianggap siang/sore
+            var h = Int(m[1] ?? "") ?? 0
+            if (1...6).contains(h) && m[2] == nil { h += 12 }
+            if let t = hm(String(h), m[2]) { dueTime = t }
+            return true
+        }
+        take(#"\s(?:at\s+)?noon(?=\s)"#) { _ in
+            if dueTime == nil { dueTime = "12:00" }
+            if due == nil { due = today }
+            return true
+        }
+        // ---- bahasa Indonesia ----
         take(#"\s(?:hari ini|hr ini)(?=\s)"#) { _ in if due == nil { due = today }; return true }
         take(#"\s(?:besok|bsk)(?=\s)"#) { _ in if due == nil { due = DueDate.inDays(1) }; return true }
         take(#"\slusa(?=\s)"#) { _ in if due == nil { due = DueDate.inDays(2) }; return true }
@@ -434,6 +514,15 @@ struct TodoParser {
         }
         let cleaned = s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
         title = cleaned.isEmpty ? raw.trimmingCharacters(in: .whitespaces) : cleaned
+        // "tomorrow morning", "this afternoon" (tanpa tanggal/this dibiarkan: "morning coffee")
+        take(#"\s(this\s+)?(morning|afternoon|evening)(?=\s)"#) { m in
+            if m[1] == nil && due == nil { return false }
+            if dueTime == nil {
+                dueTime = ["morning": "09:00", "afternoon": "15:00", "evening": "19:00"][(m[2] ?? "").lowercased()]
+            }
+            if due == nil { due = today }
+            return true
+        }
         let base = DueDate.date(due ?? today) ?? now
         if recur == "weekly:?" { recur = "weekly:\(Self.cal.component(.weekday, from: base) - 1)" }
         if recur == "monthly:?" { recur = "monthly:\(Self.cal.component(.day, from: base))" }
@@ -451,16 +540,21 @@ struct TodoParser {
             bits.append("📅 " + DueDate.label(t))
         }
         if let recur { bits.append("🔁 " + Recur.label(recur)) }
-        if important { bits.append("★ Penting") }
+        if important { bits.append(L("★ Penting")) }
         bits.append(contentsOf: tags.map { "#" + $0 })
         return bits.joined(separator: " · ")
     }
 }
 
-/// Aturan to-do berulang: daily | weekdays | weekly:<0-6, 0 = Minggu> | monthly:<1-31>
+/// Aturan to-do berulang (sama dengan web app): daily | weekdays | weekly:<0-6, 0 = Minggu> | monthly:<1-31>
 enum Recur {
     private static let cal = Calendar(identifier: .gregorian)
-    static let dayNames = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
+    /// Nama hari sesuai bahasa app, 0 = Minggu.
+    static var dayNames: [String] {
+        var c = Calendar(identifier: .gregorian)
+        c.locale = AppLang.locale
+        return c.weekdaySymbols.map { $0.prefix(1).uppercased() + String($0.dropFirst()) }
+    }
 
     /// Pilihan di detail to-do, disesuaikan dengan tanggal tenggatnya.
     static func options(for task: Item) -> [String] {
@@ -473,12 +567,12 @@ enum Recur {
     }
 
     static func label(_ r: String) -> String {
-        if r == "daily" { return "Tiap hari" }
-        if r == "weekdays" { return "Tiap hari kerja" }
+        if r == "daily" { return L("Tiap hari") }
+        if r == "weekdays" { return L("Tiap hari kerja") }
         let p = r.split(separator: ":")
         guard p.count == 2, let v = Int(p[1]) else { return "" }
-        if p[0] == "weekly", (0...6).contains(v) { return "Tiap " + dayNames[v] }
-        if p[0] == "monthly" { return "Tiap tgl \(v)" }
+        if p[0] == "weekly", (0...6).contains(v) { return L("Tiap %@", dayNames[v]) }
+        if p[0] == "monthly" { return L("Tiap tgl %lld", v) }
         return ""
     }
 

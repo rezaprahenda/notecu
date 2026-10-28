@@ -15,7 +15,8 @@ Push your cursor against the edge of the screen (or press **⌃⌥N**) and notec
 something down without leaving the app you're in. Everything stays **on your Mac**: no account,
 no server, no internet needed.
 
-> The app's interface is in Indonesian 🇮🇩.
+> Available in **English** and **Bahasa Indonesia** 🇮🇩 — follows your system language, or pick one in
+> Settings → General → Language.
 
 ## Features
 
@@ -45,6 +46,8 @@ no server, no internet needed.
 **Stays out of the way**
 - Lives in the menu bar, slides in from the left or right edge, closes when you click away
 - Trash keeps things for 30 days; JSON backup & restore; launch at login
+- **Optional sync**: leave it off and notecu is fully local. If you run your own notecu server,
+  enter its address & token in Settings → Sync to share notes with another Mac, iPhone or iPad
 
 ## Requirements
 
@@ -78,7 +81,19 @@ The app is signed ad-hoc. If macOS refuses to open it the first time, right-clic
 
 ## Writing to-dos
 
-Words are recognized in Indonesian and removed from the title:
+Recognized words are removed from the title. English and Indonesian both work, whatever the app language.
+
+| Write | Means |
+|---|---|
+| `today`, `tomorrow`, `the day after tomorrow`, `tonight` | due date (tonight = 19:00) |
+| `friday`, `next monday`, `next week`, `end of week` | a weekday, next Monday… |
+| `on the 5th`, `end of month`, `next month`, `in 3 days`, `in 2 weeks`, `in a month` | due date |
+| `3pm`, `10:30am`, `at 14:00`, `at noon`, `tomorrow morning`, `this afternoon` | time |
+| `every day`, `every weekday`, `every monday`, `every 25th`, `every week`, `every month` | repeats |
+| `!` | important |
+| `#tag` | tag |
+
+In Indonesian:
 
 | Write | Means |
 |---|---|
@@ -88,13 +103,13 @@ Words are recognized in Indonesian and removed from the title:
 | `3 hari lagi`, `2 minggu lagi`, `sebulan lagi` | in 3 days, in 2 weeks, in a month |
 | `10:00`, `jam 14`, `9.30`, `besok sore`, `nanti malam` | a time (pagi 09:00, siang 12:00, sore 15:00, malam 19:00) |
 | `tiap hari`, `tiap hari kerja`, `tiap senin`, `tiap tgl 25`, `tiap bulan` | repeats |
-| `!` | important |
-| `#tag` | tag |
+
+Dates like `3/11` are read day/month (3 November).
 
 ## Your data
 
 - Stored in `~/Library/Application Support/notecu/cache.json`
-- **Settings → Umum → Data** to back up to JSON, restore, or reveal the folder in Finder
+- **Settings → General → Data** to back up to JSON, restore, or reveal the folder in Finder
 - The secrets password is not saved anywhere — **if you forget it, locked content can't be recovered**
 
 ## Project layout
@@ -114,6 +129,9 @@ Sources/
   Reminders.swift       Notification Center reminders
   NoteTextView.swift    text editor (NSTextView)
   SettingsView.swift    settings
+  Localization.swift    language switch, L("…") helper
+Resources/
+  en.lproj/             English translations (keys are the Indonesian text)
 build.sh                builds without Xcode
 ```
 

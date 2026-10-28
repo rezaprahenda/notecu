@@ -102,7 +102,7 @@ struct NoteTextView: NSViewRepresentable {
                 tv.window?.makeFirstResponder(tv)
                 let s = tv.string
                 // Kerangka agenda yang belum diisi: kursor langsung di butir Peserta.
-                if s.trimmingCharacters(in: .whitespacesAndNewlines) == NoteText.agendaTemplate.trimmingCharacters(in: .whitespacesAndNewlines),
+                if NoteText.isUntouchedTemplate(s),
                    let r = s.range(of: "- ") {
                     tv.setSelectedRange(NSRange(location: s.distance(from: s.startIndex, to: r.upperBound), length: 0))
                 } else {

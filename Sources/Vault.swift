@@ -5,9 +5,9 @@ import Foundation
 import Security
 import SwiftUI
 
-/// Rahasia notecu: dienkripsi di Mac ini, yang tersimpan di disk hanya teks acak.
+/// Rahasia notecu: dienkripsi di perangkat; yang tersimpan (di Mac, cadangan, atau server) hanya teks acak.
 ///
-/// Format:
+/// Format (sama persis dengan web app):
 ///   🔒[v1:BASE64(salt 16 B | nonce 12 B | ciphertext | tag 16 B)]
 /// Kunci = PBKDF2-SHA256(kata sandi, salt, 210.000 putaran) → AES-256-GCM.
 /// Kata sandi hanya disimpan di memori, dan terkunci lagi setelah 5 menit atau saat panel ditutup.
@@ -251,11 +251,11 @@ struct VaultPromptView: View {
             Color.black.opacity(0.25).ignoresSafeArea()
                 .onTapGesture { vault.cancelPrompt() }
             VStack(alignment: .leading, spacing: 10) {
-                Label(vault.promptIsNew ? "Buat kata sandi rahasia" : "Buka rahasia", systemImage: "lock.fill")
+                Label(vault.promptIsNew ? L("Buat kata sandi rahasia") : L("Buka rahasia"), systemImage: "lock.fill")
                     .font(.system(size: 14, weight: .bold))
                 Text(vault.promptIsNew
-                     ? "Dipakai untuk semua rahasia & catatan terkunci. Tidak disimpan di mana pun dan tidak bisa dipulihkan kalau lupa — simpan juga di password manager."
-                     : "Masukkan kata sandi rahasia notecu. Terkunci lagi setelah \(Vault.autoLockMinutes) menit atau saat panel ditutup.")
+                     ? L("Dipakai untuk semua rahasia & catatan terkunci. Tidak disimpan di mana pun dan tidak bisa dipulihkan kalau lupa — simpan juga di password manager.")
+                     : L("Masukkan kata sandi rahasia notecu. Terkunci lagi setelah %lld menit atau saat panel ditutup.", Vault.autoLockMinutes))
                     .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -275,7 +275,7 @@ struct VaultPromptView: View {
                     Spacer()
                     Button("Batal") { vault.cancelPrompt() }
                         .keyboardShortcut(.cancelAction)
-                    Button(vault.promptIsNew ? "Simpan" : "Buka", action: submit)
+                    Button(vault.promptIsNew ? L("Simpan") : L("Buka"), action: submit)
                         .keyboardShortcut(.defaultAction)
                         .buttonStyle(.borderedProminent)
                 }
@@ -294,11 +294,11 @@ struct VaultPromptView: View {
 
     private func submit() {
         if vault.promptIsNew {
-            guard pw.count >= 8 else { error = "Minimal 8 karakter."; return }
-            guard pw == pw2 else { error = "Kedua kata sandi tidak sama."; return }
+            guard pw.count >= 8 else { error = L("Minimal 8 karakter."); return }
+            guard pw == pw2 else { error = L("Kedua kata sandi tidak sama."); return }
         }
         if !vault.unlock(pw) {
-            error = "Kata sandi salah."
+            error = L("Kata sandi salah.")
             pw = ""
             focused = true
         }
@@ -318,7 +318,7 @@ struct LockedNoteView: View {
             Spacer().frame(height: 18)
             Image(systemName: "lock.fill").font(.system(size: 28)).foregroundStyle(.secondary)
             Text("Catatan ini terkunci").font(.system(size: 13, weight: .semibold))
-            Text("Isinya terenkripsi. Yang tersimpan di disk hanya teks acak.")
+            Text("Isinya terenkripsi. Yang tersimpan hanya teks acak.")
                 .font(.system(size: 11.5)).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             Button("Buka dengan kata sandi") { vault.withUnlocked {} }

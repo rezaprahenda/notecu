@@ -94,6 +94,8 @@ final class PanelController {
             panel.animator().setFrame(f.shown, display: true)
             panel.animator().alphaValue = 1
         }
+        store.sync()
+        store.setPolling(fast: true)
     }
 
     func hide() {
@@ -106,6 +108,8 @@ final class PanelController {
         Vault.shared.cancelPrompt()
         Vault.shared.lock()
         store.saveNow()
+        store.sync()
+        store.setPolling(fast: false)
 
         let hidden = frames(on: panel.screen ?? currentScreen()).hidden
         NSAnimationContext.runAnimationGroup({ ctx in

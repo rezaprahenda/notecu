@@ -25,6 +25,11 @@ xcrun swiftc \
 
 cp Info.plist "$APP/Contents/Info.plist"
 
+# Terjemahan (Resources/en.lproj, id.lproj, …)
+for lproj in Resources/*.lproj; do
+  if [[ -d "$lproj" ]]; then cp -R "$lproj" "$APP/Contents/Resources/"; fi
+done
+
 # Ikon: Resources/AppIcon.png (1024px) -> AppIcon.icns dengan alat bawaan macOS.
 if [[ -f Resources/AppIcon.png ]]; then
   echo "→ Ikon…"

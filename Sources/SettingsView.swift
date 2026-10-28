@@ -15,12 +15,14 @@ struct SettingsView: View {
                 .tabItem { Label("Umum", systemImage: "gearshape") }
             FeaturesTab(prefs: prefs, store: store)
                 .tabItem { Label("Fitur", systemImage: "square.grid.2x2") }
+            SyncTab(prefs: prefs, store: store)
+                .tabItem { Label("Sinkron", systemImage: "arrow.triangle.2.circlepath") }
             ShortcutsTab()
                 .tabItem { Label("Pintasan", systemImage: "keyboard") }
             AboutTab()
                 .tabItem { Label("Tentang", systemImage: "info.circle") }
         }
-        .frame(width: 480, height: 430)
+        .frame(width: 480, height: 440)
     }
 }
 
@@ -32,9 +34,26 @@ private struct GeneralTab: View {
     var onLayoutChange: () -> Void
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError = ""
+    @State private var language = AppLang.choice
+    @State private var dataMessage = ""
 
     var body: some View {
         Form {
+            Section {
+                Picker("Bahasa", selection: $language) {
+                    Text("Ikuti sistem").tag("")
+                    Text(verbatim: "Bahasa Indonesia").tag("id")
+                    Text(verbatim: "English").tag("en")
+                }
+                .onChange(of: language) { _, v in AppLang.choose(v) }
+                if language != AppLang.choiceAtLaunch {
+                    HStack {
+                        Text("Bahasa berganti setelah notecu dibuka ulang.").font(.footnote).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Buka ulang sekarang") { AppLang.relaunch(store: store) }
+                    }
+                }
+            }
             Section("Panel") {
                 Picker("Muncul dari tepi", selection: $prefs.edge) {
                     Text("Kiri").tag("left")
@@ -46,7 +65,7 @@ private struct GeneralTab: View {
                 HStack {
                     Text("Lebar panel")
                     Slider(value: $prefs.panelWidth, in: 300...560, step: 10) { _ in onLayoutChange() }
-                    Text("\(Int(prefs.panelWidth))").monospacedDigit().foregroundStyle(.secondary).frame(width: 34)
+                    Text(verbatim: "\(Int(prefs.panelWidth))").monospacedDigit().foregroundStyle(.secondary).frame(width: 34)
                 }
                 Picker("Huruf isi catatan", selection: $prefs.noteFont) {
                     Text("Sans (rapat)").tag("sans")
@@ -57,7 +76,7 @@ private struct GeneralTab: View {
                 Toggle("Jalankan saat login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, on in setLaunchAtLogin(on) }
                 if !loginError.isEmpty {
-                    Text(loginError).font(.footnote).foregroundStyle(.red)
+                    Text(verbatim: loginError).font(.footnote).foregroundStyle(.red)
                 }
             }
             Section {
@@ -67,19 +86,28 @@ private struct GeneralTab: View {
                 }
                 Button("Tampilkan folder data di Finder") { NSWorkspace.shared.open(store.dataFolder) }
                 if !dataMessage.isEmpty {
-                    Text(dataMessage).font(.footnote).foregroundStyle(.secondary)
+                    Text(verbatim: dataMessage).font(.footnote).foregroundStyle(.secondary)
                 }
             } header: {
                 Text("Data")
             } footer: {
-                Text("Semua catatan tersimpan di Mac ini saja. Simpan cadangan sesekali, misalnya ke iCloud Drive.")
+                Text("Semua catatan selalu tersimpan di Mac ini. Simpan cadangan sesekali, misalnya ke iCloud Drive.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
     }
 
-    @State private var dataMessage = ""
+    private func setLaunchAtLogin(_ on: Bool) {
+        if (SMAppService.mainApp.status == .enabled) == on { return }
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+            loginError = ""
+        } catch {
+            loginError = L("Gagal mengubah: %@. Pastikan notecu ada di folder Applications.", error.localizedDescription)
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+        }
+    }
 
     private func exportBackup() {
         guard let data = store.exportJSON() else { return }
@@ -89,7 +117,12 @@ private struct GeneralTab: View {
         panel.nameFieldStringValue = "notecu-\(f.string(from: Date())).json"
         panel.allowedContentTypes = [.json]
         if panel.runModal() == .OK, let url = panel.url {
-            do { try data.write(to: url); dataMessage = "✓ Cadangan disimpan" } catch { dataMessage = "Gagal menyimpan: \(error.localizedDescription)" }
+            do {
+                try data.write(to: url)
+                dataMessage = L("✓ Cadangan disimpan")
+            } catch {
+                dataMessage = L("Gagal menyimpan: %@", error.localizedDescription)
+            }
         }
     }
 
@@ -99,18 +132,82 @@ private struct GeneralTab: View {
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url, let data = try? Data(contentsOf: url) else { return }
         let n = store.importJSON(data)
-        dataMessage = n < 0 ? "File ini bukan cadangan notecu." : "✓ \(n) item dipulihkan (yang sudah ada & lebih baru tidak ditimpa)"
+        dataMessage = n < 0 ? L("File ini bukan cadangan notecu.") : L("✓ %lld item dipulihkan (yang sudah ada & lebih baru tidak ditimpa)", n)
+    }
+}
+
+// MARK: - Sinkron (opsional)
+
+private struct SyncTab: View {
+    @ObservedObject var prefs: Prefs
+    @ObservedObject var store: NoteStore
+    @State private var testResult = ""
+    @State private var testing = false
+
+    private var status: (Color, String) {
+        switch store.status {
+        case .ok: return (.green, L("Tersinkron"))
+        case .saving: return (.orange, L("Menyimpan…"))
+        case .connecting: return (.orange, L("Menghubungkan…"))
+        case .offline: return (.red, store.pendingCount > 0 ? L("Offline · %lld perubahan belum terkirim", store.pendingCount) : L("Offline"))
+        case .badToken: return (.red, L("Token ditolak server"))
+        case .notConfigured: return (.secondary, L("Tidak dipakai — semua tersimpan di Mac ini saja"))
+        }
     }
 
-    private func setLaunchAtLogin(_ on: Bool) {
-        if (SMAppService.mainApp.status == .enabled) == on { return }
-        do {
-            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
-            loginError = ""
-        } catch {
-            loginError = "Gagal mengubah: \(error.localizedDescription). Pastikan notecu ada di folder Applications."
-            launchAtLogin = SMAppService.mainApp.status == .enabled
+    var body: some View {
+        Form {
+            Section {
+                TextField("Alamat server", text: $prefs.serverURL, prompt: Text(verbatim: "https://notecu.example.com"))
+                SecureField("Token", text: $prefs.token, prompt: Text(verbatim: "NOTECU_TOKEN"))
+                LabeledContent("Status") {
+                    HStack(spacing: 6) {
+                        Circle().fill(status.0).frame(width: 7, height: 7)
+                        Text(verbatim: status.1).foregroundStyle(.secondary)
+                    }
+                }
+                if prefs.isConfigured {
+                    HStack {
+                        Button(testing ? L("Mengetes…") : L("Tes koneksi"), action: test).disabled(testing)
+                        Button("Sinkron sekarang") { store.scheduleSync(after: 0) }
+                        Text(verbatim: testResult).font(.callout).foregroundStyle(.secondary)
+                    }
+                    if let url = prefs.baseURLString.flatMap(URL.init(string:)) {
+                        Link("Buka notecu versi web", destination: url)
+                    }
+                }
+            } header: {
+                Text("Sinkron (opsional)")
+            } footer: {
+                Text("Kosongkan kalau tidak perlu. Isi alamat & token server notecu milikmu sendiri untuk menyamakan catatan dengan Mac lain, iPhone, atau iPad.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
         }
+        .formStyle(.grouped)
+    }
+
+    private func test() {
+        guard let url = prefs.apiURL("api/sync?after=999999999") else { return }
+        testing = true
+        testResult = ""
+        var req = URLRequest(url: url, timeoutInterval: 8)
+        req.setValue("Bearer \(prefs.cleanToken)", forHTTPHeaderField: "Authorization")
+        URLSession.shared.dataTask(with: req) { _, response, error in
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            DispatchQueue.main.async {
+                testing = false
+                if code == 200 {
+                    testResult = L("✓ Terhubung")
+                    store.scheduleSync(after: 0)
+                } else if code == 401 {
+                    testResult = L("Token salah")
+                } else if let error {
+                    testResult = L("Tidak terhubung: %@", error.localizedDescription)
+                } else {
+                    testResult = L("Server menjawab %lld", code)
+                }
+            }
+        }.resume()
     }
 }
 
@@ -120,7 +217,6 @@ private struct FeaturesTab: View {
     @ObservedObject var prefs: Prefs
     @ObservedObject var store: NoteStore
     @ObservedObject private var vault = Vault.shared
-    private static let colorNames: [FolderColor: String] = [.amber: "Kuning", .coral: "Merah", .teal: "Hijau tosca", .blue: "Biru", .violet: "Ungu", .green: "Hijau"]
 
     var body: some View {
         Form {
@@ -143,19 +239,18 @@ private struct FeaturesTab: View {
                     set: { store.setAgendaColor($0) }
                 )) {
                     ForEach(FolderColor.allCases, id: \.self) { c in
-                        Text(Self.colorNames[c] ?? c.rawValue).tag(c)
+                        Text(verbatim: c.label).tag(c)
                     }
                 }
             }
             Section {
                 Picker("Kunci lagi setelah", selection: $prefs.vaultLockMinutes) {
-                    Text("1 menit").tag(1)
-                    Text("5 menit").tag(5)
-                    Text("15 menit").tag(15)
-                    Text("30 menit").tag(30)
+                    ForEach([1, 5, 15, 30], id: \.self) { m in
+                        Text(verbatim: L("%lld menit", m)).tag(m)
+                    }
                 }
                 HStack {
-                    Text(vault.isUnlocked ? "Rahasia sedang terbuka" : "Rahasia terkunci").foregroundStyle(.secondary)
+                    Text(verbatim: vault.isUnlocked ? L("Rahasia sedang terbuka") : L("Rahasia terkunci")).foregroundStyle(.secondary)
                     Spacer()
                     Button("Kunci sekarang") { vault.lock() }.disabled(!vault.isUnlocked)
                 }
@@ -187,13 +282,21 @@ private struct ShortcutsTab: View {
         ("⌘[", "Kembali ke daftar"),
         ("Esc / ⌘W", "Tutup panel"),
     ]
-    private let typing: [(String, String)] = [
-        ("- [ ]", "Checklist"),
-        ("#tag", "Tag"),
-        ("[[Judul]]", "Tautan ke catatan lain (Tab = saran pertama)"),
-        ("besok 10:00 !", "Tenggat, jam, penting — di kalimat to-do"),
-        ("tiap senin", "To-do berulang"),
-    ]
+    private var typing: [(String, String)] {
+        AppLang.isEnglish ? [
+            ("- [ ]", "Checklist"),
+            ("#tag", "Tag"),
+            ("[[Judul]]", "Tautan ke catatan lain (Tab = saran pertama)"),
+            ("tomorrow 10am !", "Tenggat, jam, penting — di kalimat to-do"),
+            ("every monday", "To-do berulang"),
+        ] : [
+            ("- [ ]", "Checklist"),
+            ("#tag", "Tag"),
+            ("[[Judul]]", "Tautan ke catatan lain (Tab = saran pertama)"),
+            ("besok 10:00 !", "Tenggat, jam, penting — di kalimat to-do"),
+            ("tiap senin", "To-do berulang"),
+        ]
+    }
 
     var body: some View {
         Form {
@@ -206,7 +309,7 @@ private struct ShortcutsTab: View {
 
     @ViewBuilder private func rows(_ items: [(String, String)]) -> some View {
         ForEach(items.indices, id: \.self) { i in
-            LabeledContent(items[i].1) { Text(items[i].0).monospaced().foregroundStyle(.secondary) }
+            LabeledContent(L(items[i].1)) { Text(verbatim: items[i].0).monospaced().foregroundStyle(.secondary) }
         }
     }
 }
@@ -221,19 +324,18 @@ private struct AboutTab: View {
             Spacer()
             NotecuMark().frame(width: 72, height: 72)
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("notecu").font(.system(size: 24, weight: .bold, design: .rounded))
-                Text("v\(version)").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(verbatim: "notecu").font(.system(size: 24, weight: .bold, design: .rounded))
+                Text(verbatim: "v\(version)").font(.system(size: 12)).foregroundStyle(.secondary)
             }
-            Text("note it, cu later.").font(.system(size: 14)).foregroundStyle(.secondary)
+            Text(verbatim: "note it, cu later.").font(.system(size: 14)).foregroundStyle(.secondary)
             Button {
                 if let url = URL(string: "https://instagram.com/rezaprahenda") { NSWorkspace.shared.open(url) }
             } label: {
                 HStack(spacing: 4) {
-                    Text("made with").foregroundStyle(.secondary)
-                    Text("♥").foregroundStyle(.red)
-                    Text("by")
-                        .foregroundStyle(.secondary)
-                    Text("@rezaprahenda").foregroundStyle(Color.accentColor)
+                    Text(verbatim: "made with").foregroundStyle(.secondary)
+                    Text(verbatim: "♥").foregroundStyle(.red)
+                    Text(verbatim: "by").foregroundStyle(.secondary)
+                    Text(verbatim: "@rezaprahenda").foregroundStyle(Color.accentColor)
                 }
                 .font(.system(size: 13))
             }

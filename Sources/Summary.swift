@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Ringkasan kegiatan (laporan bulanan).
+/// Ringkasan kegiatan (laporan bulanan). Aturannya sama dengan buildSummary di web app.
 struct SummaryOptions: Equatable {
     var from: String
     var to: String
@@ -20,8 +20,8 @@ enum Summary {
     private static let cal = Calendar(identifier: .gregorian)
     private static let shortFmt: DateFormatter = {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "id_ID")
-        f.dateFormat = "d MMM"
+        f.locale = AppLang.locale
+        f.setLocalizedDateFormatFromTemplate("dMMM")
         return f
     }()
 
@@ -47,7 +47,7 @@ enum Summary {
 
     /// Isi agenda: bagian Kesimpulan & Tindak lanjut kalau ada, kalau tidak seluruh isinya.
     static func gist(_ n: Item) -> [String] {
-        if n.isLocked { return ["- 🔒 (catatan terkunci)"] }
+        if n.isLocked { return [L("- 🔒 (catatan terkunci)")] }
         let lines = NoteText.lines(Vault.replaceTokens(n.parts.body, with: "🔒••••"))
         var sections: [String: [String]] = [:]
         var cur = ""
@@ -59,7 +59,7 @@ enum Summary {
             }
             sections[cur, default: []].append(l)
         }
-        let pick = ["kesimpulan", "tindak lanjut"].filter { k in (sections[k] ?? []).contains { !clean($0).isEmpty } }
+        let pick = ["kesimpulan", "conclusion", "tindak lanjut", "follow-up", "follow up"].filter { k in (sections[k] ?? []).contains { !clean($0).isEmpty } }
         if !pick.isEmpty {
             var out: [String] = []
             for k in pick {
@@ -110,8 +110,8 @@ enum Summary {
         }
         func openLine(_ t: Item) -> String {
             var late = ""
-            if DueDate.isOverdue(t), let d = DueDate.daysFromToday(t.due) { late = " — ⚠ terlambat \(-d) hari" }
-            else if let due = t.due { late = " — tenggat \(short(due))" }
+            if DueDate.isOverdue(t), let d = DueDate.daysFromToday(t.due) { late = L(" — ⚠ terlambat %lld hari", -d) }
+            else if let due = t.due { late = L(" — tenggat %@", short(due)) }
             return "- ○ \(t.displayTitle)\(late)\(tags(t))"
         }
 
@@ -138,20 +138,20 @@ enum Summary {
             }
             for k in keys {
                 guard let b = buckets[k] else { continue }
-                out += ["## " + (k.isEmpty ? "Tanpa tag" : "#" + k), ""]
+                out += ["## " + (k.isEmpty ? L("Tanpa tag") : "#" + k), ""]
                 for n in b.agenda { out += agendaLines(n) }
-                if !b.done.isEmpty { out += ["**Selesai (\(b.done.count))**"] + b.done.map(doneLine) + [""] }
-                if !b.open.isEmpty { out += ["**Masih berjalan (\(b.open.count))**"] + b.open.map(openLine) + [""] }
+                if !b.done.isEmpty { out += ["**\(L("Selesai")) (\(b.done.count))**"] + b.done.map(doneLine) + [""] }
+                if !b.open.isEmpty { out += ["**\(L("Masih berjalan")) (\(b.open.count))**"] + b.open.map(openLine) + [""] }
             }
         } else {
-            if o.agenda { out += ["## Agenda (\(agenda.count))", ""] + (agenda.isEmpty ? ["- Tidak ada agenda", ""] : agenda.flatMap(agendaLines)) }
-            if o.done { out += ["## Selesai (\(done.count))"] + (done.isEmpty ? ["- Belum ada"] : done.map(doneLine)) + [""] }
-            if o.open { out += ["## Masih berjalan (\(open.count))"] + (open.isEmpty ? ["- Tidak ada"] : open.map(openLine)) + [""] }
+            if o.agenda { out += ["## \(L("Agenda")) (\(agenda.count))", ""] + (agenda.isEmpty ? ["- " + L("Tidak ada agenda"), ""] : agenda.flatMap(agendaLines)) }
+            if o.done { out += ["## \(L("Selesai")) (\(done.count))"] + (done.isEmpty ? ["- " + L("Belum ada")] : done.map(doneLine)) + [""] }
+            if o.open { out += ["## \(L("Masih berjalan")) (\(open.count))"] + (open.isEmpty ? ["- " + L("Tidak ada")] : open.map(openLine)) + [""] }
         }
         let body = out.joined(separator: "\n")
             .replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return ("Ringkasan Kegiatan — \(label)" + (o.tag.isEmpty ? "" : " · #\(o.tag)"), body)
+        return (L("Ringkasan Kegiatan — %@", label) + (o.tag.isEmpty ? "" : " · #\(o.tag)"), body)
     }
 
     /// Untuk dibawa keluar notecu: [[Judul]] jadi teks biasa.
@@ -189,11 +189,11 @@ struct SummaryView: View {
                     let pb = NSPasteboard.general
                     pb.clearContents()
                     pb.setString(Summary.plainLinks("# \(result.title)\n\n\(result.body)\n"), forType: .string)
-                    store.noteNotice("Ringkasan disalin (Markdown)")
+                    store.noteNotice(L("Ringkasan disalin (Markdown)"))
                 }
                 Button("Simpan jadi catatan") {
                     let id = store.createNote(folder: nil, pinned: false)
-                    store.setTitle(id, result.title.replacingOccurrences(of: "Ringkasan Kegiatan — ", with: "Ringkasan "))
+                    store.setTitle(id, result.title.replacingOccurrences(of: L("Ringkasan Kegiatan — %@", ""), with: L("Ringkasan %@", "")))
                     store.setBody(id, result.body)
                     ui.showSummary = false
                     ui.filter = .all

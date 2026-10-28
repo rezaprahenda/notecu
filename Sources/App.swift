@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var statusMenu: NSMenu?
     private var statusLine: NSMenuItem?
+    private var syncItem: NSMenuItem?
     private var keepOpenItem: NSMenuItem?
     private var edgeItems: [NSMenuItem] = []
     private var hoverItem: NSMenuItem?
@@ -63,8 +64,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         RunLoop.main.add(t, forMode: .common)
         badgeTimer = t
 
+        store.sync()
+        store.setPolling(fast: false)
+
         // Pertama kali dipakai: langsung tampilkan panelnya.
-        if store.items.isEmpty {
+        if !prefs.isConfigured && store.items.isEmpty {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.panel?.show() }
         }
     }
@@ -98,6 +102,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(makeItem("Catatan baru", #selector(newNote), key: "N", mods: [.control, .option, .shift]))
         menu.addItem(makeItem("To-do baru", #selector(newTask), key: "t", mods: [.control, .option]))
         menu.addItem(makeItem("Agenda baru", #selector(dailyNote)))
+        let sync = makeItem("Sinkron sekarang", #selector(syncNow))
+        menu.addItem(sync)
+        syncItem = sync
         menu.addItem(.separator())
 
         let keep = makeItem("Biarkan panel tetap terbuka", #selector(toggleKeepOpen))
@@ -108,7 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(hover)
         hoverItem = hover
 
-        let edge = NSMenuItem(title: "Muncul dari tepi", action: nil, keyEquivalent: "")
+        let edge = NSMenuItem(title: L("Muncul dari tepi"), action: nil, keyEquivalent: "")
         let edgeMenu = NSMenu()
         edgeMenu.autoenablesItems = false
         for (title, value) in [("Kanan", "right"), ("Kiri", "left")] {
@@ -134,7 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func makeItem(_ title: String, _ action: Selector, key: String = "", mods: NSEvent.ModifierFlags = [.command]) -> NSMenuItem {
-        let i = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        let i = NSMenuItem(title: L(title), action: action, keyEquivalent: key)
         i.keyEquivalentModifierMask = mods
         i.target = self
         return i
@@ -153,8 +160,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        // Sinkron itu opsional: tanpa server, baris status cukup berisi ringkasan to-do.
+        var parts: [String] = []
+        if prefs.isConfigured {
+            switch store.status {
+            case .ok: parts.append(L("Tersinkron dengan server"))
+            case .saving: parts.append(L("Menyimpan ke server…"))
+            case .connecting: parts.append(L("Menghubungkan…"))
+            case .offline: parts.append(store.pendingCount > 0 ? L("Offline · %lld perubahan menunggu", store.pendingCount) : L("Server tidak terjangkau"))
+            case .badToken: parts.append(L("Token ditolak server"))
+            case .notConfigured: break
+            }
+        } else {
+            parts.append("notecu")
+        }
         let due = store.dueCount
-        statusLine?.title = due > 0 ? "notecu · \(due) to-do perlu dibereskan" : "notecu · semua beres"
+        parts.append(due > 0 ? L("%lld to-do perlu dibereskan", due) : L("semua beres"))
+        statusLine?.title = parts.joined(separator: " · ")
+        syncItem?.isHidden = !prefs.isConfigured
         keepOpenItem?.state = panel?.ui.keepOpen == true ? .on : .off
         hoverItem?.state = prefs.hoverOpen ? .on : .off
         for i in edgeItems { i.state = (i.representedObject as? String) == prefs.edge ? .on : .off }
@@ -174,12 +197,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
                 .baselineOffset: 0.5,
             ])
-            button.toolTip = "notecu · \(n) to-do terlambat atau jatuh tempo hari ini"
+            button.toolTip = L("notecu · %lld to-do terlambat atau jatuh tempo hari ini", n)
         } else {
             button.attributedTitle = NSAttributedString(string: "")
             button.toolTip = "notecu (⌃⌥N)"
         }
     }
+    @objc private func syncNow() { store.sync() }
     @objc private func toggleKeepOpen() { panel?.ui.keepOpen.toggle() }
     @objc private func toggleHover() { prefs.hoverOpen.toggle() }
 
@@ -214,7 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let view = SettingsView(prefs: prefs, store: store) { [weak self] in self?.panel?.relayout() }
             let host = NSHostingController(rootView: view)
             let w = NSWindow(contentViewController: host)
-            w.title = "Pengaturan notecu"
+            w.title = L("Pengaturan notecu")
             w.styleMask = [.titled, .closable]
             w.isReleasedWhenClosed = false
             w.center()

@@ -1,11 +1,24 @@
-import Combine
 import Foundation
+import Combine
 
-/// Semua catatan, agenda, to-do & folder. Disimpan di Mac ini saja
-/// (~/Library/Application Support/notecu/cache.json), tanpa server.
+/// Semua catatan, agenda, to-do & folder. Selalu disimpan di Mac ini
+/// (~/Library/Application Support/notecu/cache.json). Sinkron ke server notecu itu opsional:
+/// hanya jalan kalau alamat & token diisi di Pengaturan. Bentrokan ditangani server:
+/// versi yang kalah jadi salinan "(bentrokan)".
 final class NoteStore: ObservableObject {
+    enum SyncStatus: Equatable {
+        case notConfigured
+        case connecting
+        case ok
+        case saving
+        case offline
+        case badToken
+    }
+
     @Published private(set) var items: [String: Item] = [:]
-    /// Pesan singkat di kepala panel.
+    @Published private(set) var status: SyncStatus = .connecting
+    @Published private(set) var pendingCount = 0
+    /// Pesan singkat di kepala panel, misalnya saat ada bentrokan.
     @Published private(set) var notice: String?
     /// To-do yang baru dicentang: tetap terlihat 3 detik dengan tombol Urungkan.
     struct Linger { var spawned: String?; var recur: String? }
@@ -15,14 +28,29 @@ final class NoteStore: ObservableObject {
 
     let prefs: Prefs
 
-    /// Catatan baru yang masih kosong: belum disimpan.
+    private var dirty = Set<String>() { didSet { pendingCount = dirty.count } }
+    /// Catatan baru yang masih kosong: belum dikirim ke server.
     private var pristine = Set<String>()
+    private var seq = 0
+    private var seqServer = ""
+    private var syncing = false
+    private var again = false
+    private var syncWork: DispatchWorkItem?
     private var saveWork: DispatchWorkItem?
+    private var pollTimer: Timer?
+    private var cancellables = Set<AnyCancellable>()
 
     init(prefs: Prefs) {
         self.prefs = prefs
         load()
+        status = prefs.isConfigured ? .connecting : .notConfigured
         migrateDaily()
+        // Kalau alamat server / token berubah, coba sinkron lagi.
+        prefs.$serverURL.combineLatest(prefs.$token)
+            .dropFirst()
+            .debounce(for: .seconds(0.8), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.scheduleSync(after: 0) }
+            .store(in: &cancellables)
     }
 
     // MARK: - Membaca
@@ -159,9 +187,9 @@ final class NoteStore: ObservableObject {
     }
 
     /// Agenda lama yang judulnya tanggal ("Rabu, 28 Oktober 2026"): baris pertama isi jadi judul,
-    /// tanggal tetap di field daily.
+    /// tanggal tetap di field daily. Hasilnya sama persis dengan versi web, jadi server tidak menganggapnya bentrokan.
     func migrateDaily() {
-        for n in allNotes where !pristine.contains(n.id) {
+        for n in allNotes where !dirty.contains(n.id) && !pristine.contains(n.id) {
             let p = n.parts
             guard let ds = DailyText.parseLegacyTitle(p.title) else { continue }
             let sp = NoteText.splitLegacy(p.body)
@@ -228,7 +256,7 @@ final class NoteStore: ObservableObject {
         if let n = noteByTitle(title) { return n.id }
         let id = createNote(folder: nil, pinned: false)
         setTitle(id, title.trimmingCharacters(in: .whitespaces))
-        showNotice("Catatan baru: \(title)")
+        showNotice(L("Catatan baru: %@", title))
         return id
     }
 
@@ -266,7 +294,7 @@ final class NoteStore: ObservableObject {
         return count
     }
 
-    /// Warna Agenda harian (disimpan sebagai item "set-agenda", bisa diganti lewat klik kanan chip tahun).
+    /// Warna Agenda harian (disinkron sebagai item "set-agenda", bisa diganti lewat klik kanan chip tahun).
     var agendaColor: FolderColor {
         guard let it = items["set-agenda"], !it.isDeleted else { return .teal }
         return FolderColor.of(it.color ?? "teal")
@@ -350,12 +378,12 @@ final class NoteStore: ObservableObject {
             let new = n.parts.title.trimmingCharacters(in: .whitespaces)
             if !old.trimmingCharacters(in: .whitespaces).isEmpty, !new.isEmpty, new.lowercased() != old.trimmingCharacters(in: .whitespaces).lowercased() {
                 let c = renameLinks(from: old, to: new)
-                if c > 0 { showNotice("Tautan di \(c) catatan ikut diganti") }
+                if c > 0 { showNotice(L("Tautan di %lld catatan ikut diganti", c)) }
             }
             Self.openTitles[id] = n.parts.title
         }
         if n.isBlank { purgeNote(id) }
-        scheduleSave()
+        scheduleSync(after: 0.2)
     }
 
     @discardableResult
@@ -391,14 +419,106 @@ final class NoteStore: ObservableObject {
         var it = item
         it.updatedAt = max(nowMillis(), it.updatedAt + 1)
         let emptyNew = pristine.contains(it.id) && it.isBlank && !it.isDeleted
-        if it.isDeleted {
-            items.removeValue(forKey: it.id)   // langsung dibuang dari penyimpanan
-        } else {
-            items[it.id] = it
-        }
-        if emptyNew { return }          // catatan kosong belum perlu disimpan
+        items[it.id] = it
+        if emptyNew { return }          // catatan kosong belum perlu dikirim
         pristine.remove(it.id)
+        dirty.insert(it.id)
         scheduleSave()
+        scheduleSync(after: 1.0)
+    }
+
+    // MARK: - Sinkron
+
+    func scheduleSync(after seconds: Double) {
+        syncWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in self?.sync() }
+        syncWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: w)
+    }
+
+    /// Cek server lebih sering saat panel terbuka.
+    func setPolling(fast: Bool) {
+        pollTimer?.invalidate()
+        let t = Timer(timeInterval: fast ? 5 : 60, repeats: true) { [weak self] _ in self?.sync() }
+        RunLoop.main.add(t, forMode: .common)
+        pollTimer = t
+    }
+
+    func sync() {
+        guard prefs.isConfigured, let url = prefs.apiURL("api/sync") else {
+            status = .notConfigured
+            return
+        }
+        if syncing { again = true; return }
+        if let base = prefs.baseURLString, base != seqServer {
+            // Server baru: ambil semua dari awal.
+            seq = 0
+            seqServer = base
+        }
+        syncing = true
+        if !dirty.isEmpty { status = .saving }
+
+        let sent = dirty.compactMap { items[$0] }
+        var req = URLRequest(url: url, timeoutInterval: 12)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(prefs.cleanToken)", forHTTPHeaderField: "Authorization")
+        req.httpBody = try? JSONEncoder().encode(SyncRequest(after: seq, items: sent))
+
+        URLSession.shared.dataTask(with: req) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                self?.finishSync(sent: sent, data: data, response: response, error: error)
+            }
+        }.resume()
+    }
+
+    private func finishSync(sent: [Item], data: Data?, response: URLResponse?, error: Error?) {
+        syncing = false
+        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if code == 401 {
+            status = .badToken
+            return
+        }
+        guard error == nil, code == 200, let data,
+              let res = try? JSONDecoder().decode(SyncResponse.self, from: data) else {
+            status = .offline
+            if again { again = false }
+            return
+        }
+        for s in sent where items[s.id]?.updatedAt == s.updatedAt {
+            dirty.remove(s.id)
+        }
+        // Simpan versi server terbaru, juga untuk catatan yang masih diedit.
+        for a in res.applied ?? [] { items[a.id]?.rev = a.rev }
+        merge(res.items)
+        migrateDaily()
+        let conflicts = res.conflicts?.count ?? 0
+        if conflicts > 0 { showNotice(L("%lld bentrokan, disimpan sebagai salinan", conflicts)) }
+        seq = res.seq
+        status = dirty.isEmpty ? .ok : .saving
+        scheduleSave()
+
+        if again {
+            again = false
+            scheduleSync(after: 0.3)
+        } else if !dirty.isEmpty {
+            scheduleSync(after: 1.5)
+        }
+    }
+
+    private func merge(_ incoming: [Item]) {
+        var next = items
+        var changed = false
+        for inc in incoming {
+            if let cur = next[inc.id] {
+                if dirty.contains(inc.id) { continue }     // editan lokal yang belum terkirim tetap dipakai
+                if cur == inc { continue }
+            }
+            next[inc.id] = inc
+            pristine.remove(inc.id)
+            changed = true
+        }
+        if changed { items = next }
     }
 
     private func showNotice(_ text: String) {
@@ -414,7 +534,10 @@ final class NoteStore: ObservableObject {
     // MARK: - Simpan di Mac
 
     private struct Cache: Codable {
+        var seq: Int
+        var seqServer: String
         var items: [Item]
+        var dirty: [String]
     }
 
     private var cacheURL: URL {
@@ -427,7 +550,10 @@ final class NoteStore: ObservableObject {
     private func load() {
         guard let data = try? Data(contentsOf: cacheURL),
               let c = try? JSONDecoder().decode(Cache.self, from: data) else { return }
-        items = Dictionary(c.items.filter { !$0.isDeleted }.map { ($0.id, $0) }, uniquingKeysWith: { a, b in a.updatedAt >= b.updatedAt ? a : b })
+        seq = c.seq
+        seqServer = c.seqServer
+        items = Dictionary(c.items.map { ($0.id, $0) }, uniquingKeysWith: { a, b in a.updatedAt >= b.updatedAt ? a : b })
+        dirty = Set(c.dirty)
     }
 
     private func scheduleSave() {
@@ -439,9 +565,9 @@ final class NoteStore: ObservableObject {
 
     func saveNow() {
         saveWork?.cancel()
-        // Catatan baru yang masih kosong tidak ikut disimpan.
+        // Catatan kosong yang belum pernah dikirim tidak ikut disimpan.
         let keep = items.values.filter { !pristine.contains($0.id) }
-        let c = Cache(items: Array(keep))
+        let c = Cache(seq: seq, seqServer: seqServer, items: Array(keep), dirty: Array(dirty))
         guard let data = try? JSONEncoder().encode(c) else { return }
         try? data.write(to: cacheURL, options: .atomic)
     }
@@ -449,20 +575,23 @@ final class NoteStore: ObservableObject {
     /// Folder tempat data disimpan (untuk "Tampilkan di Finder").
     var dataFolder: URL { cacheURL.deletingLastPathComponent() }
 
-    /// Pulihkan dari file cadangan JSON. Yang lebih baru menang; hasilnya jumlah item yang masuk.
+    /// Pulihkan dari file cadangan JSON. Yang lebih baru menang; hasilnya jumlah item yang masuk (-1 = bukan cadangan notecu).
     @discardableResult
     func importJSON(_ data: Data) -> Int {
         struct Export: Decodable { var items: [Item] }
         guard let e = try? JSONDecoder().decode(Export.self, from: data) else { return -1 }
         var n = 0
         var next = items
-        for it in e.items where !it.isDeleted {
+        for var it in e.items where !it.isDeleted {
             if let cur = next[it.id], cur.updatedAt >= it.updatedAt { continue }
+            it.rev = next[it.id]?.rev        // supaya server tidak menganggapnya bentrokan
             next[it.id] = it
+            dirty.insert(it.id)
             n += 1
         }
         items = next
         saveNow()
+        scheduleSync(after: 0.5)
         return n
     }
 
@@ -474,4 +603,18 @@ final class NoteStore: ObservableObject {
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         return try? enc.encode(Export(exportedAt: nowMillis(), items: Array(live)))
     }
+}
+
+private struct SyncRequest: Encodable {
+    var after: Int
+    var items: [Item]
+}
+
+private struct SyncResponse: Decodable {
+    struct Applied: Decodable { var id: String; var rev: Int }
+    struct Conflict: Decodable { var id: String; var copyId: String }
+    var seq: Int
+    var items: [Item]
+    var applied: [Applied]?
+    var conflicts: [Conflict]?
 }

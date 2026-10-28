@@ -1,7 +1,8 @@
 import Foundation
 import SwiftUI
 
-/// Satu baris data: catatan, folder, to-do, atau pengaturan.
+/// Satu baris data: catatan atau folder. Bentuknya sama persis dengan yang disimpan server
+/// dan dipakai web app, jadi Mac, iPhone, dan iPad bisa saling sinkron.
 struct Item: Codable, Identifiable, Equatable {
     var id: String
     var kind: String            // "note" | "folder"
@@ -21,7 +22,7 @@ struct Item: Codable, Identifiable, Equatable {
 
     // Judul catatan (terpisah dari isi). nil = catatan lama, judulnya masih di baris pertama.
     var title: String?
-    /// Versi data (dipertahankan supaya cadangan lama tetap terbaca).
+    /// Versi server terakhir yang dilihat perangkat ini (untuk mendeteksi bentrokan).
     var rev: Int?
     /// Waktu dibuang ke Sampah (milidetik). nil = tidak di Sampah.
     var trashedAt: Double?
@@ -69,14 +70,14 @@ struct Item: Codable, Identifiable, Equatable {
     }
     var displayTitle: String {
         let t = parts.title.trimmingCharacters(in: .whitespaces)
-        return t.isEmpty ? "Tanpa judul" : t
+        return t.isEmpty ? L("Tanpa judul") : t
     }
     var isBlank: Bool {
         let p = parts
         let b = p.body.trimmingCharacters(in: .whitespacesAndNewlines)
         // Agenda yang kerangkanya belum diisi juga dianggap kosong.
         return p.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && (b.isEmpty || b == NoteText.agendaTemplate.trimmingCharacters(in: .whitespacesAndNewlines))
+            && (b.isEmpty || NoteText.isUntouchedTemplate(b))
     }
 
     /// Tanggal "yyyy-MM-dd" kalau ini catatan harian (field daily, atau judul lama "Rabu, 28 Oktober 2026").
@@ -114,17 +115,38 @@ enum FolderColor: String, CaseIterable {
 
     static func of(_ raw: String?) -> FolderColor { FolderColor(rawValue: raw ?? "") ?? .blue }
 
+    /// Nama warna untuk menu.
+    var label: String {
+        switch self {
+        case .amber: return L("Kuning")
+        case .coral: return L("Merah")
+        case .teal: return L("Hijau tosca")
+        case .blue: return L("Biru")
+        case .violet: return L("Ungu")
+        case .green: return L("Hijau")
+        }
+    }
+
     var next: FolderColor {
         let all = FolderColor.allCases
         return all[(all.firstIndex(of: self)! + 1) % all.count]
     }
 }
 
-/// Aturan teks catatan:
+/// Aturan teks catatan, sama dengan web app:
 /// baris pertama = judul, "- [ ]" / "- [x]" = checklist, "# " = judul bagian, "- " = poin.
 enum NoteText {
     /// Kerangka Agenda baru.
-    static let agendaTemplate = "## Peserta\n- \n\n## Pembahasan\n- \n\n## Kesimpulan\n- \n\n## Tindak lanjut\n- [ ] "
+    static let agendaTemplateID = "## Peserta\n- \n\n## Pembahasan\n- \n\n## Kesimpulan\n- \n\n## Tindak lanjut\n- [ ] "
+    static let agendaTemplateEN = "## Participants\n- \n\n## Discussion\n- \n\n## Conclusion\n- \n\n## Follow-up\n- [ ] "
+    /// Kerangka Agenda baru, sesuai bahasa app.
+    static var agendaTemplate: String { AppLang.isEnglish ? agendaTemplateEN : agendaTemplateID }
+    /// Kerangka agenda yang belum diisi (bahasa apa pun).
+    static func isUntouchedTemplate(_ body: String) -> Bool {
+        let b = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        return b == agendaTemplateID.trimmingCharacters(in: .whitespacesAndNewlines)
+            || b == agendaTemplateEN.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
     static let wikiRegex = try! NSRegularExpression(pattern: #"\[\[([^\[\]\n]+?)\]\]"#)
     static let noteScheme = "notecu-note"
     private static let urlSafe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
@@ -223,20 +245,20 @@ enum NoteText {
 enum RelativeTime {
     private static let formatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
-        f.locale = Locale(identifier: "id_ID")
+        f.locale = AppLang.locale
         f.unitsStyle = .short
         return f
     }()
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "id_ID")
+        f.locale = AppLang.locale
         f.setLocalizedDateFormatFromTemplate("d MMM")
         return f
     }()
 
     static func string(_ date: Date) -> String {
         let s = Date().timeIntervalSince(date)
-        if s < 60 { return "baru saja" }
+        if s < 60 { return L("baru saja") }
         if s < 86_400 * 2 { return formatter.localizedString(for: date, relativeTo: Date()) }
         return dateFormatter.string(from: date)
     }
@@ -259,14 +281,14 @@ enum DailyText {
         options: [.caseInsensitive])
     private static let monthFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "id_ID")
-        f.dateFormat = "MMMM yyyy"
+        f.locale = AppLang.locale
+        f.setLocalizedDateFormatFromTemplate("MMMMyyyy")
         return f
     }()
     private static let shortFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "id_ID")
-        f.dateFormat = "EEEE, d MMM"
+        f.locale = AppLang.locale
+        f.setLocalizedDateFormatFromTemplate("EEEEdMMM")
         return f
     }()
 
@@ -282,7 +304,7 @@ enum DailyText {
     /// "2026-10" -> "Oktober 2026"
     static func monthLabel(_ ym: String) -> String {
         guard let d = DueDate.date(ym + "-01") else { return ym }
-        return monthFormatter.string(from: d).capitalized(with: Locale(identifier: "id_ID"))
+        return monthFormatter.string(from: d).capitalized(with: AppLang.locale)
     }
 
     /// "2026-10" -> "Oktober"
