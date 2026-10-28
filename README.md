@@ -1,97 +1,126 @@
-<p align="center"><img src="Resources/AppIcon.png" width="96" alt="notecu"></p>
+<p align="center">
+  <img src="Resources/AppIcon.png" width="128" alt="notecu icon">
+</p>
 
 <h1 align="center">notecu</h1>
-<p align="center"><i>note it, cu later.</i></p>
 
-**notecu** (*notes lucu*) adalah app catatan di sisi layar untuk macOS. Panelnya muncul dari tepi layar saat kursor didorong ke pinggir (atau lewat ⌃⌥N), jadi kamu bisa mencatat tanpa meninggalkan app yang sedang dipakai.
+<p align="center">
+  <i>notes lucu</i> — a little notes app that peeks in from the edge of your Mac's screen.<br>
+  <b>note it, cu later.</b>
+</p>
 
-Semua data tersimpan **di Mac ini saja**. Tanpa akun, tanpa server, tanpa internet.
+---
 
-## Fitur
+Push your cursor against the edge of the screen (or press **⌃⌥N**) and notecu slides in, so you can jot
+something down without leaving the app you're in. Everything stays **on your Mac**: no account,
+no server, no internet needed.
 
-- **Catatan** dengan judul, folder, warna penanda, sematan, dan `#tag`
-- **Agenda harian**: satu kartu per topik rapat, dikelompokkan per tanggal → bulan → tahun, dengan kerangka Peserta / Pembahasan / Kesimpulan / Tindak lanjut
-- **To-do** dengan tenggat, jam, penting ★, folder, tag, pengingat, dan **to-do berulang**
-- **Kalimat to-do pintar**: `Surati Kapusdatin besok 10:00 ! #kementan` → tenggat besok jam 10, penting, bertag
-- **Tautan antar catatan** `[[Judul]]`, lengkap dengan daftar *Disebut di*
-- **To-do terkait** di bawah catatan (dibuat dari catatan, ikut folder & tag-nya)
-- **Rahasia 🔒**: blok teks lalu ⌘L, atau kunci seluruh catatan. Dienkripsi AES-256-GCM (kunci PBKDF2-SHA256, 210.000 putaran)
-- **Ringkasan** untuk laporan bulanan: agenda, to-do selesai & yang masih berjalan, per jenis atau per tag
-- Checklist `- [ ]`, poin, daftar bernomor, `# Judul`, **tebal**, *miring*, `kode`, dan link yang bisa diklik
-- Sampah 30 hari, cadangan & pemulihan JSON, jalankan saat login
+> The app's interface is in Indonesian 🇮🇩.
 
-## Kebutuhan
+## Features
 
-- macOS 14 Sonoma atau lebih baru
-- Command Line Tools (`xcode-select --install`). Xcode tidak diperlukan.
+**Notes**
+- Titles, folders, color markers, pinning and `#tags`
+- Checklists `- [ ]`, bullets, numbered lists, `# headings`, **bold**, *italic*, `code` and clickable links
+- **Links between notes** with `[[Title]]` — type `[[` for suggestions, and every note shows where it's *mentioned*
+- **Secrets 🔒**: select text and press ⌘L, or lock a whole note.
+  AES-256-GCM, key derived with PBKDF2-SHA256 (210,000 rounds); the password is never stored
 
-## Build & pasang
+**Daily agenda**
+- One card per meeting topic, grouped by day → month → year
+- New agendas start with a *Participants / Discussion / Conclusion / Follow-up* outline
+- To-dos created from a note stay linked to it
+
+**To-dos**
+- Due dates and times, ★ important, folders, tags, reminders in Notification Center
+- **Smart sentences** — `Surati Kapusdatin besok 10:00 ! #kementan` becomes
+  *due tomorrow 10:00, important, tagged #kementan*
+- **Repeating to-dos** (`tiap senin`, `tiap tgl 25`…): checking one off schedules the next
+- Undo right after checking off, and a full history grouped by month
+
+**Monthly summary**
+- Agendas, finished and ongoing to-dos for any month, grouped by type or by tag
+- Copy as Markdown or save it as a note — handy for monthly reports
+
+**Stays out of the way**
+- Lives in the menu bar, slides in from the left or right edge, closes when you click away
+- Trash keeps things for 30 days; JSON backup & restore; launch at login
+
+## Requirements
+
+- macOS 14 Sonoma or later
+- Command Line Tools (`xcode-select --install`) — Xcode itself is not needed
+
+## Build & install
 
 ```bash
-git clone <url-repo-ini> notecu
+git clone https://github.com/rezaprahenda/notecu.git
 cd notecu
-./build.sh install     # build, pasang ke /Applications, lalu jalankan
+./build.sh install     # build, copy to /Applications and launch
 ```
 
-Pilihan lain: `./build.sh` (build saja) atau `./build.sh run` (build lalu jalankan dari folder `build/`).
+`./build.sh` only builds; `./build.sh run` builds and launches from `build/`.
 
-App ditandatangani *ad-hoc*. Kalau macOS menolak membukanya pertama kali, klik kanan **notecu.app → Open**.
+The app is signed ad-hoc. If macOS refuses to open it the first time, right-click **notecu.app → Open**.
 
-## Pintasan
+## Shortcuts
 
-| Pintasan | Fungsi |
+| Shortcut | Action |
 |---|---|
-| ⌃⌥N | Buka / tutup panel dari mana saja |
-| ⌃⌥⇧N | Catatan baru dari mana saja |
-| ⌃⌥T | To-do baru dari mana saja |
-| ⌘N / ⌘D / ⌘T | Catatan / agenda / to-do baru (di dalam panel) |
-| ⌘F | Cari |
-| ⌘L | Rahasiakan teks yang diblok |
-| ⌘[ | Kembali ke daftar |
-| Esc / ⌘W | Tutup panel |
+| ⌃⌥N | Show / hide the panel from anywhere |
+| ⌃⌥⇧N | New note from anywhere |
+| ⌃⌥T | New to-do from anywhere |
+| ⌘N / ⌘D / ⌘T | New note / agenda / to-do (inside the panel) |
+| ⌘F | Search |
+| ⌘L | Turn the selected text into a secret |
+| ⌘[ | Back to the list |
+| Esc / ⌘W | Close the panel |
 
-## Saat menulis to-do
+## Writing to-dos
 
-| Tulis | Hasil |
+Words are recognized in Indonesian and removed from the title:
+
+| Write | Means |
 |---|---|
-| `hari ini`, `besok`, `lusa` | tenggat |
-| `jumat`, `senin depan`, `hari minggu`, `minggu depan` | tenggat |
-| `tgl 5`, `3/11`, `akhir bulan`, `awal bulan depan`, `3 hari lagi`, `sebulan lagi` | tenggat |
-| `10:00`, `jam 14`, `9.30`, `besok sore`, `nanti malam` | jam |
-| `tiap senin`, `tiap hari`, `tiap hari kerja`, `tiap tgl 25`, `tiap bulan` | berulang |
-| `!` | penting |
+| `hari ini`, `besok`, `lusa` | today, tomorrow, the day after |
+| `jumat`, `senin depan`, `hari minggu`, `minggu depan` | a weekday, next Monday, Sunday, next week |
+| `tgl 5`, `3/11`, `akhir bulan`, `awal bulan depan` | the 5th, 3 Nov, end of month, start of next month |
+| `3 hari lagi`, `2 minggu lagi`, `sebulan lagi` | in 3 days, in 2 weeks, in a month |
+| `10:00`, `jam 14`, `9.30`, `besok sore`, `nanti malam` | a time (pagi 09:00, siang 12:00, sore 15:00, malam 19:00) |
+| `tiap hari`, `tiap hari kerja`, `tiap senin`, `tiap tgl 25`, `tiap bulan` | repeats |
+| `!` | important |
 | `#tag` | tag |
 
-## Data
+## Your data
 
-- Lokasi: `~/Library/Application Support/notecu/cache.json`
-- Cadangan: **Pengaturan → Umum → Data → Simpan cadangan (JSON)**. Pulihkan dari menu yang sama.
-- Kata sandi rahasia tidak disimpan di mana pun. **Kalau lupa, isi yang terkunci tidak bisa dibuka.**
+- Stored in `~/Library/Application Support/notecu/cache.json`
+- **Settings → Umum → Data** to back up to JSON, restore, or reveal the folder in Finder
+- The secrets password is not saved anywhere — **if you forget it, locked content can't be recovered**
 
-## Struktur
+## Project layout
 
 ```
 Sources/
-  App.swift             menu bar, hotkey global, jendela pengaturan
-  PanelController.swift panel dari tepi layar, shortcut di dalam panel
-  PanelViews.swift      tampilan panel: daftar, editor, agenda, tautan
-  NoteStore.swift       data & penyimpanan lokal
-  Models.swift          bentuk data, aturan teks
-  Tasks.swift           to-do, kalimat to-do, to-do berulang
-  TaskViews.swift       tampilan to-do
-  Tags.swift            #tag
-  Vault.swift           rahasia & catatan terkunci
-  Summary.swift         ringkasan bulanan
-  Reminders.swift       pengingat lewat Notification Center
-  NoteTextView.swift    editor teks (NSTextView)
-  SettingsView.swift    pengaturan
-build.sh                build tanpa Xcode
+  App.swift             menu bar item, global hotkeys, settings window
+  PanelController.swift edge panel, in-panel shortcuts
+  PanelViews.swift      list, editor, agenda, links
+  NoteStore.swift       data & local storage
+  Models.swift          data model, text rules
+  Tasks.swift           to-dos, smart sentences, repeating to-dos
+  TaskViews.swift       to-do views
+  Tags.swift            #tags
+  Vault.swift           secrets & locked notes
+  Summary.swift         monthly summary
+  Reminders.swift       Notification Center reminders
+  NoteTextView.swift    text editor (NSTextView)
+  SettingsView.swift    settings
+build.sh                builds without Xcode
 ```
 
-## Lisensi
+## License
 
 [MIT](LICENSE) © 2026 Reza Prahenda
 
 ---
 
-made with ♥ by [@rezaprahenda](https://instagram.com/rezaprahenda)
+<p align="center">made with ♥ by <a href="https://instagram.com/rezaprahenda">@rezaprahenda</a></p>
