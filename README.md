@@ -29,7 +29,8 @@ no server, no internet needed.
 
 **Daily agenda**
 - One card per meeting topic, grouped by day → month → year
-- New agendas start with a *Participants / Discussion / Conclusion / Follow-up* outline
+- New agendas start with an outline you choose: *Participants / Discussion / Conclusion / Follow-up*,
+  the Indonesian version, your own custom outline, or none at all
 - To-dos created from a note stay linked to it
 
 **To-dos**

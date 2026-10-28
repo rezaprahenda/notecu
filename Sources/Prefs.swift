@@ -21,6 +21,10 @@ final class Prefs: ObservableObject {
     @Published var noteFont: String { didSet { d.set(noteFont, forKey: "noteFont") } }
     /// Rahasia terkunci lagi setelah sekian menit tidak dipakai
     @Published var vaultLockMinutes: Int { didSet { d.set(vaultLockMinutes, forKey: "vaultLockMinutes") } }
+    /// Kerangka Agenda baru: "" = ikut bahasa app, "id", "en", "none" (kosong), atau "custom"
+    @Published var agendaTemplate: String { didSet { d.set(agendaTemplate, forKey: "agendaTemplate") } }
+    /// Kerangka buatan sendiri (dipakai kalau agendaTemplate = "custom")
+    @Published var agendaCustom: String { didSet { d.set(agendaCustom, forKey: "agendaCustom") } }
 
     init() {
         serverURL = d.string(forKey: "serverURL") ?? ""
@@ -33,6 +37,8 @@ final class Prefs: ObservableObject {
         reminderTime = d.string(forKey: "reminderTime") ?? "09:00"
         noteFont = d.string(forKey: "noteFont") ?? "sans"
         vaultLockMinutes = d.object(forKey: "vaultLockMinutes") as? Int ?? 5
+        agendaTemplate = d.string(forKey: "agendaTemplate") ?? ""
+        agendaCustom = d.string(forKey: "agendaCustom") ?? NoteText.agendaTemplateID
     }
 
     var isConfigured: Bool { baseURLString != nil && !token.trimmingCharacters(in: .whitespaces).isEmpty }

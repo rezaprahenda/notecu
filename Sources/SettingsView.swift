@@ -234,6 +234,32 @@ private struct FeaturesTab: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("Agenda") {
+                Picker("Kerangka agenda baru", selection: $prefs.agendaTemplate) {
+                    Text("Ikuti bahasa app").tag("")
+                    Text(verbatim: "Indonesia — Peserta, Pembahasan, Kesimpulan, Tindak lanjut").tag("id")
+                    Text(verbatim: "English — Participants, Discussion, Conclusion, Follow-up").tag("en")
+                    Text("Tanpa kerangka").tag("none")
+                    Text("Kustom").tag("custom")
+                }
+                if prefs.agendaTemplate == "custom" {
+                    VStack(alignment: .leading, spacing: 6) {
+                        TextEditor(text: $prefs.agendaCustom)
+                            .font(.system(size: 12, design: .monospaced))
+                            .frame(height: 110)
+                            .scrollContentBackground(.hidden)
+                            .padding(4)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.05)))
+                        HStack(spacing: 10) {
+                            Text("Mulai dari:").font(.footnote).foregroundStyle(.secondary)
+                            Button { prefs.agendaCustom = NoteText.agendaTemplateID } label: { Text(verbatim: "Indonesia") }
+                            Button { prefs.agendaCustom = NoteText.agendaTemplateEN } label: { Text(verbatim: "English") }
+                        }
+                        .buttonStyle(.link)
+                        .font(.footnote)
+                        Text("Pakai # Judul bagian, - poin, - [ ] checklist. Bagian Kesimpulan / Conclusion dan Tindak lanjut / Follow-up dipakai Ringkasan.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
                 Picker("Warna Agenda", selection: Binding(
                     get: { store.agendaColor },
                     set: { store.setAgendaColor($0) }
@@ -282,6 +308,7 @@ private struct ShortcutsTab: View {
         ("⌘[", "Kembali ke daftar"),
         ("Esc / ⌘W", "Tutup panel"),
     ]
+    /// Kata to-do bahasa Indonesia & Inggris selalu dikenali; contohnya mengikuti bahasa app.
     private var typing: [(String, String)] {
         AppLang.isEnglish ? [
             ("- [ ]", "Checklist"),

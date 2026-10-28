@@ -139,13 +139,23 @@ enum NoteText {
     /// Kerangka Agenda baru.
     static let agendaTemplateID = "## Peserta\n- \n\n## Pembahasan\n- \n\n## Kesimpulan\n- \n\n## Tindak lanjut\n- [ ] "
     static let agendaTemplateEN = "## Participants\n- \n\n## Discussion\n- \n\n## Conclusion\n- \n\n## Follow-up\n- [ ] "
-    /// Kerangka Agenda baru, sesuai bahasa app.
-    static var agendaTemplate: String { AppLang.isEnglish ? agendaTemplateEN : agendaTemplateID }
+    /// Kerangka Agenda baru: pilihan di Pengaturan → Fitur → Agenda (bawaan: ikut bahasa app).
+    static var agendaTemplate: String {
+        switch UserDefaults.standard.string(forKey: "agendaTemplate") ?? "" {
+        case "id": return agendaTemplateID
+        case "en": return agendaTemplateEN
+        case "none": return ""
+        case "custom": return UserDefaults.standard.string(forKey: "agendaCustom") ?? agendaTemplateID
+        default: return AppLang.isEnglish ? agendaTemplateEN : agendaTemplateID
+        }
+    }
     /// Kerangka agenda yang belum diisi (bahasa apa pun).
     static func isUntouchedTemplate(_ body: String) -> Bool {
         let b = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        let custom = (UserDefaults.standard.string(forKey: "agendaCustom") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return b == agendaTemplateID.trimmingCharacters(in: .whitespacesAndNewlines)
             || b == agendaTemplateEN.trimmingCharacters(in: .whitespacesAndNewlines)
+            || (!custom.isEmpty && b == custom)
     }
     static let wikiRegex = try! NSRegularExpression(pattern: #"\[\[([^\[\]\n]+?)\]\]"#)
     static let noteScheme = "notecu-note"
