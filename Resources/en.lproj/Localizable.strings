@@ -305,3 +305,6 @@
 "Kustom" = "Custom";
 "Mulai dari:" = "Start from:";
 "Pakai # Judul bagian, - poin, - [ ] checklist. Bagian Kesimpulan / Conclusion dan Tindak lanjut / Follow-up dipakai Ringkasan." = "Use # Section titles, - bullets, - [ ] checklists. Conclusion / Kesimpulan and Follow-up / Tindak lanjut sections are used by the Summary.";
+"Sampah · %lld" = "Trash · %lld";
+"Lainnya" = "More";
+"Buat baru…" = "Create new…";

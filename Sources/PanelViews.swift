@@ -184,24 +184,35 @@ struct HeaderBar: View {
             }
             SyncBadge(store: store)
             Spacer()
-            IconButton(symbol: "chart.bar.doc.horizontal", help: "Ringkasan / laporan bulanan", active: ui.showSummary) {
-                ui.showSummary.toggle()
-                if ui.showSummary { ui.openID = nil; ui.openTaskID = nil }
+            // Jarang dipakai: Ringkasan & Sampah dikumpulkan di menu ⋯
+            Menu {
+                Button {
+                    ui.showSummary = true
+                    ui.openID = nil
+                    ui.openTaskID = nil
+                } label: { Label(L("Ringkasan / laporan bulanan"), systemImage: "chart.bar.doc.horizontal") }
+                Button {
+                    ui.showSummary = false
+                    ui.filter = .trash
+                    ui.openID = nil
+                    ui.openTaskID = nil
+                    ui.tag = nil
+                    ui.dailyMonth = nil
+                } label: { Label(L("Sampah · %lld", store.count(.trash)), systemImage: "trash") }
+                Divider()
+                Button { ui.hidePanel() } label: { Label(L("Tutup panel (Esc)"), systemImage: prefs.edge == "left" ? "sidebar.left" : "sidebar.right") }
+            } label: {
+                Image(systemName: "ellipsis.circle").font(.system(size: 13, weight: .medium))
             }
-            IconButton(symbol: ui.filter == .trash ? "trash.fill" : "trash",
-                       help: L("Sampah · %lld item (dihapus permanen setelah 30 hari)", store.count(.trash)),
-                       active: ui.filter == .trash) {
-                ui.filter = ui.filter == .trash ? .all : .trash
-                ui.openID = nil
-                ui.openTaskID = nil
-                ui.tag = nil
-                ui.dailyMonth = nil
-            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .foregroundStyle(.secondary)
+            .help(L("Lainnya"))
             IconButton(symbol: ui.keepOpen ? "pin.fill" : "pin",
                        help: ui.keepOpen ? "Panel tetap terbuka (klik untuk mematikan)" : "Biarkan panel tetap terbuka",
                        active: ui.keepOpen) { ui.keepOpen.toggle() }
             IconButton(symbol: "gearshape", help: "Pengaturan") { ui.openSettings() }
-            IconButton(symbol: prefs.edge == "left" ? "sidebar.left" : "sidebar.right", help: "Tutup panel (Esc)") { ui.hidePanel() }
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)
@@ -396,7 +407,7 @@ struct FolderStrip: View {
         let all = store.folders
         let shown = visibleFolders(all)
         FlowLayout(spacing: 6, lineSpacing: 6) {
-            Chip(title: L("Semua"), color: .primary, count: store.count(.all), selected: ui.filter == .all) { select(.all) }
+            Chip(title: L("Semua"), color: .primary, count: store.count(.all) + store.count(.daily), selected: ui.filter == .all) { select(.all) }
             ForEach(shown) { f in
                 if ui.renamingFolder == f.id {
                     TextField("Nama folder", text: $editName)
@@ -653,24 +664,42 @@ struct NoteListView: View {
                     .foregroundStyle(.secondary)
                     .help("Urutkan catatan")
 
-                    if ui.filter != .daily {
-                        IconButton(symbol: "calendar.badge.plus", help: "Agenda baru hari ini (⌘D)") { openDaily() }
+                    // Satu tombol "Baru" dengan pilihan ▾: catatan, agenda, atau to-do
+                    HStack(spacing: 0) {
+                        Button(action: newNote) {
+                            Label(ui.filter == .daily ? L("Agenda") : L("Baru"), systemImage: ui.filter == .daily ? "calendar.badge.plus" : "square.and.pencil")
+                                .font(.system(size: 12, weight: .semibold))
+                                .padding(.leading, 10).padding(.trailing, 8).padding(.vertical, 6)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(ui.filter == .daily ? L("Agenda baru hari ini (⌘D)") : L("Catatan baru (⌘N)"))
+                        Rectangle().fill(Color.white.opacity(0.35)).frame(width: 1, height: 16)
+                        Menu {
+                            Button { newPlainNote() } label: { Label(L("Catatan baru"), systemImage: "square.and.pencil") }
+                            Button { openDaily() } label: { Label(L("Agenda baru"), systemImage: "calendar.badge.plus") }
+                            Button { newTodo() } label: { Label(L("To-do baru"), systemImage: "checkmark.circle") }
+                        } label: {
+                            Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .padding(.horizontal, 7)
+                        .help(L("Buat baru…"))
                     }
-
-                    Button(action: newNote) {
-                        Label(ui.filter == .daily ? L("Agenda") : L("Baru"), systemImage: ui.filter == .daily ? "calendar.badge.plus" : "square.and.pencil")
-                            .font(.system(size: 12, weight: .semibold))
-                            .padding(.horizontal, 10).padding(.vertical, 6)
-                            .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor))
-                            .foregroundStyle(.white)
-                    }
-                    .buttonStyle(.plain)
-                    .help(ui.filter == .daily ? L("Agenda baru hari ini (⌘D)") : L("Catatan baru (⌘N)"))
+                    .foregroundStyle(.white)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor))
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
 
+
+            if ui.filter == .all && ui.query.isEmpty && ui.tag == nil {
+                TodayCard(store: store, ui: ui)
+                    .padding(.horizontal, 8)
+            }
 
             let list = store.notes(ui.filter, query: ui.query, month: ui.dailyMonth).filter { store.hasTag($0, ui.tag) }
             let dailyCount = ui.filter == .all && ui.query.isEmpty && ui.tag == nil ? store.count(.daily) : 0
@@ -826,6 +855,12 @@ struct NoteListView: View {
 
     func newNote() {
         if ui.filter == .daily { openDaily(); return }   // di Harian, Baru = agenda baru hari ini
+        newPlainNote()
+    }
+
+    /// Catatan biasa (juga dari menu ▾ saat sedang di Agenda).
+    private func newPlainNote() {
+        if ui.filter == .daily { ui.filter = .all; ui.dailyMonth = nil }
         var folder: String? = nil
         if case .folder(let id) = ui.filter { folder = id }
         let id = store.createNote(folder: folder, pinned: ui.filter == .pinned)
@@ -834,6 +869,16 @@ struct NoteListView: View {
         ui.readMode = false
         ui.wantsTitleFocus = true
         ui.openID = id
+    }
+
+    /// Pindah ke tab To-do dan fokus ke kolom tambah.
+    private func newTodo() {
+        ui.openID = nil
+        ui.openTaskID = nil
+        ui.query = ""
+        ui.lastNoteFilter = ui.filter
+        ui.focusTaskFormOnAppear = true
+        ui.filter = .tasks
     }
 
     private func openDaily() {
@@ -859,6 +904,61 @@ struct ColorMenuItems: View {
             Button { store.setNoteColor(note.id, c) } label: {
                 if note.color == c.rawValue { Label(c.label, systemImage: "checkmark") } else { Text(verbatim: c.label) }
             }
+        }
+    }
+}
+
+/// Ringkasan "Hari ini" di atas Semua: to-do yang jatuh tempo / terlambat dan agenda hari ini.
+struct TodayCard: View {
+    @ObservedObject var store: NoteStore
+    @ObservedObject var ui: PanelUI
+
+    var body: some View {
+        let today = DueDate.today()
+        let tasks = store.openTasks().filter { t in
+            let g = TaskGroup.of(t)
+            return g == .overdue || g == .today
+        }
+        let agendas = store.notes(.daily).filter { $0.dailyDate == today }
+        if !tasks.isEmpty || !agendas.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: L("Hari ini").uppercased() + " · " + DailyText.shortLabel(today))
+                    .font(.system(size: 10.5, weight: .bold))
+                    .tracking(0.5)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8).padding(.top, 4)
+                ForEach(Array(tasks.prefix(5))) { t in
+                    TaskRow(store: store, ui: ui, task: t, showFolder: false)
+                }
+                if tasks.count > 5 {
+                    Button(L("+%lld lainnya", tasks.count - 5)) {
+                        ui.lastNoteFilter = ui.filter
+                        ui.filter = .tasks
+                    }
+                    .buttonStyle(.link)
+                    .font(.system(size: 11.5))
+                    .padding(.horizontal, 8)
+                }
+                ForEach(agendas) { n in
+                    Button {
+                        ui.readMode = NoteText.checks(n.parts.body).total > 0
+                        ui.wantsTitleFocus = false
+                        ui.openID = n.id
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "calendar").font(.system(size: 11)).foregroundStyle(store.agendaColor.color)
+                            Text(verbatim: n.displayTitle).font(.system(size: 12.5, weight: .medium)).lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 8).padding(.vertical, 5)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 4)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.045)))
+            .padding(.bottom, 6)
         }
     }
 }
