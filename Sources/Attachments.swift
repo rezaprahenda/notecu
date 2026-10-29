@@ -150,7 +150,7 @@ final class AttachmentIndex {
 // MARK: - Sinkron file ke server
 
 /// Unggah lampiran baru dan unduh lampiran dari perangkat lain, satu per satu, setelah tiap sinkron.
-final class AttachmentSync {
+final class AttachmentSync: @unchecked Sendable {
     static let shared = AttachmentSync()
     /// Semua diakses dari main thread.
     var running = false
@@ -193,6 +193,9 @@ final class AttachmentSync {
 }
 
 // MARK: - Di NoteStore
+
+/// NoteStore hanya diubah dari main thread; hasil kerja di belakang layar selalu dikembalikan lewat DispatchQueue.main.
+extension NoteStore: @unchecked Sendable {}
 
 extension NoteStore {
     /// Lampirkan file ke catatan. Catatan terkunci tidak bisa diberi lampiran (filenya tidak terenkripsi).
