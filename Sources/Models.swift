@@ -45,6 +45,8 @@ struct Item: Codable, Identifiable, Equatable {
     var locked: Bool?
     /// To-do berulang: "daily" | "weekdays" | "weekly:<0-6>" | "monthly:<1-31>"
     var recur: String?
+    /// File terlampir (salinannya ada di folder notecu di Mac ini, lihat Attachments.swift)
+    var attachments: [Attachment]?
 
     var isDeleted: Bool { deleted ?? false }
     var isNote: Bool { kind == "note" }
@@ -62,6 +64,7 @@ struct Item: Codable, Identifiable, Equatable {
         return max(0, Int(left.rounded(.up)))
     }
     var body: String { text ?? "" }
+    var attachmentList: [Attachment] { attachments ?? [] }
 
     /// Judul dan isi. Catatan lama tanpa kolom judul dipecah dari baris pertamanya.
     var parts: (title: String, body: String) {
@@ -78,6 +81,7 @@ struct Item: Codable, Identifiable, Equatable {
         // Agenda yang kerangkanya belum diisi juga dianggap kosong.
         return p.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && (b.isEmpty || NoteText.isUntouchedTemplate(b))
+            && (attachments ?? []).isEmpty
     }
 
     /// Tanggal "yyyy-MM-dd" kalau ini catatan harian (field daily, atau judul lama "Rabu, 28 Oktober 2026").
@@ -157,7 +161,16 @@ enum NoteText {
             || b == agendaTemplateEN.trimmingCharacters(in: .whitespacesAndNewlines)
             || (!custom.isEmpty && b == custom)
     }
-    static let wikiRegex = try! NSRegularExpression(pattern: #"\[\[([^\[\]\n]+?)\]\]"#)
+    static let wikiRegex = try! NSRegularExpression(pattern: #"(?<!!)\[\[([^\[\]\n]+?)\]\]"#)
+    /// Satu baris ![[nama file]] = lampiran yang ditampilkan di tengah catatan (gaya Obsidian).
+    static let embedRegex = try! NSRegularExpression(pattern: #"^\s*!\[\[([^\[\]\n]+?)\]\]\s*$"#)
+
+    static func embedName(_ line: String) -> String? {
+        let ns = line as NSString
+        guard line.contains("![["),
+              let m = embedRegex.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { return nil }
+        return ns.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespaces)
+    }
     static let noteScheme = "notecu-note"
     private static let urlSafe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
 
@@ -209,6 +222,7 @@ enum NoteText {
         lines(Vault.replaceTokens(body, with: "🔒••••"))
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
             .map { $0.replacingOccurrences(of: #"^\s*(- \[[ xX]\] ?|#+\s*|[-*]\s+|\d+[.)]\s+)"#, with: "", options: .regularExpression) }
+            .map { $0.replacingOccurrences(of: #"!\[\[([^\[\]\n]+?)\]\]"#, with: "🖼 $1", options: .regularExpression) }
             .joined(separator: " · ")
     }
 

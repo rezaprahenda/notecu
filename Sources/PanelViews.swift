@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Keadaan tampilan panel (bukan data catatan).
 final class PanelUI: ObservableObject {
@@ -38,6 +39,10 @@ final class PanelUI: ObservableObject {
 
     var openSettings: () -> Void = {}
     var hidePanel: () -> Void = {}
+    /// Jadikan panel aktif lagi (setelah jendela pilih file ditutup).
+    var refocusPanel: () -> Void = {}
+    /// Jangan tutup panel walau kehilangan fokus (misalnya saat memilih file).
+    var holdOpen = false
 }
 
 // MARK: - Root
@@ -748,7 +753,7 @@ struct NoteListView: View {
                                     ForEach(dayGroups(g.items), id: \.month) { d in
                                         DayHeader(date: d.month, tint: store.agendaColor.color)
                                         ForEach(d.items) { n in
-                                            NoteRow(store: store, note: n, showFolder: false) { open(n.id) }
+                                            NoteRow(store: store, note: n, showFolder: false, query: ui.query) { open(n.id) }
                                                 .contextMenu { rowMenu(n) }
                                         }
                                     }
@@ -758,7 +763,7 @@ struct NoteListView: View {
                             ForEach(Array(grouped(list).enumerated()), id: \.offset) { _, g in
                                 if !g.0.isEmpty { SectionHeader(title: g.0, count: g.1.count) }
                                 ForEach(g.1) { n in
-                                    NoteRow(store: store, note: n, showFolder: ui.filter == .all) { open(n.id) }
+                                    NoteRow(store: store, note: n, showFolder: ui.filter == .all, query: ui.query) { open(n.id) }
                                         .contextMenu { rowMenu(n) }
                                 }
                             }
@@ -1069,6 +1074,8 @@ struct NoteRow: View {
     let note: Item
     let showFolder: Bool
     var titleOverride: String? = nil
+    /// Kata yang sedang dicari: kalau cocoknya di lampiran, potongan isinya ditampilkan.
+    var query: String = ""
     let action: () -> Void
     @State private var hover = false
 
@@ -1076,7 +1083,7 @@ struct NoteRow: View {
         let folder = store.folderOf(note)
         let content = note.parts.body
         let checks = NoteText.checks(content)
-        let snippet = note.isLocked ? L("🔒 Catatan terkunci") : NoteText.snippet(content)
+        let snippet = note.isLocked ? L("🔒 Catatan terkunci") : (attachmentSnippet(content) ?? NoteText.snippet(content))
         Button(action: action) {
             HStack(alignment: .top, spacing: 9) {
                 RoundedRectangle(cornerRadius: 1.5)
@@ -1102,6 +1109,13 @@ struct NoteRow: View {
                                     .foregroundStyle(checks.done == checks.total ? Color.green : Color.secondary)
                             }
                             if showFolder, let folder { Text(folder.name ?? "") }
+                            if !note.attachmentList.isEmpty {
+                                HStack(spacing: 2) {
+                                    Image(systemName: "paperclip")
+                                    Text("\(note.attachmentList.count)")
+                                }
+                                .help(note.attachmentList.map(\.name).joined(separator: "\n"))
+                            }
                             TagLine(tags: note.tagList)
                         }
                     }
@@ -1117,6 +1131,14 @@ struct NoteRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
+    }
+
+    /// "📎 Laporan.pdf: …potongan isi…" kalau kata yang dicari hanya ada di lampiran.
+    private func attachmentSnippet(_ content: String) -> String? {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty, !(note.parts.title + "\n" + content).lowercased().contains(q),
+              let hit = store.attachmentHit(note, q) else { return nil }
+        return "📎 " + hit.attachment.name + (hit.context.isEmpty ? "" : ": " + hit.context)
     }
 }
 
@@ -1158,6 +1180,9 @@ struct EditorView: View {
                 }
                 if plain != nil {
                     IconButton(symbol: "checkmark.circle", help: "Tambah to-do dari catatan ini") { ui.linkedAdd += 1 }
+                }
+                if plain != nil && !locked {
+                    IconButton(symbol: "paperclip", help: "Lampirkan file (bisa juga diseret ke catatan)") { pickFiles() }
                 }
                 IconButton(symbol: locked ? "lock.fill" : "lock.open",
                            help: locked ? "Catatan terkunci · klik untuk melepas kunci" : "Kunci seluruh catatan",
@@ -1269,6 +1294,9 @@ struct EditorView: View {
                     linkToken += 1
                 }
             }
+            if plain != nil {
+                AttachmentsBar(store: store, note: note)
+            }
             BacklinksBar(store: store, ui: ui, note: note)
             LinkedTasksBar(store: store, ui: ui, noteID: note.id, alwaysShow: note.isDaily)
                 .id(note.id)
@@ -1286,11 +1314,54 @@ struct EditorView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
         }
-        .onAppear(perform: focusTitleIfWanted)
+        .onAppear {
+            focusTitleIfWanted()
+            let store = store, ui = ui
+            FileDropTextView.onFiles = { urls in
+                guard let id = ui.openID else { return [] }
+                return store.addAttachments(id, urls: urls)
+            }
+        }
+        .onDisappear { FileDropTextView.onFiles = nil }
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            let id = note.id
+            let group = DispatchGroup()
+            var urls: [URL] = []
+            for p in providers {
+                group.enter()
+                _ = p.loadObject(ofClass: URL.self) { url, _ in
+                    DispatchQueue.main.async {
+                        if let url { urls.append(url) }
+                        group.leave()
+                    }
+                }
+            }
+            group.notify(queue: .main) { store.addAttachments(id, urls: urls) }
+            return true
+        }
         .onChange(of: ui.wantsTitleFocus) { focusTitleIfWanted() }
         .onChange(of: ui.readMode) { _, read in
             if !read { ui.focusEditor += 1 }
         }
+    }
+
+    /// Pilih file untuk dilampirkan. Panel tetap terbuka selama jendela pilih file tampil.
+    private func pickFiles() {
+        let id = note.id
+        let p = NSOpenPanel()
+        p.allowsMultipleSelection = true
+        p.canChooseDirectories = false
+        p.canChooseFiles = true
+        p.prompt = L("Lampirkan")
+        p.message = L("Pilih file untuk dilampirkan ke catatan ini")
+        p.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
+        ui.holdOpen = true
+        NSApp.activate(ignoringOtherApps: true)
+        let ok = p.runModal() == .OK
+        let urls = p.urls
+        ui.holdOpen = false
+        ui.refocusPanel()
+        if ok { store.appendEmbeds(id, store.addAttachments(id, urls: urls)) }
     }
 
     /// Klik [[Judul]]: buka catatannya, atau buat kalau belum ada.
@@ -1666,7 +1737,9 @@ struct ReadView: View {
     @ViewBuilder private func lineView(_ i: Int, _ line: String) -> some View {
         let ns = line as NSString
         let full = NSRange(location: 0, length: ns.length)
-        if let m = NoteText.checkPattern.firstMatch(in: line, range: full),
+        if let name = NoteText.embedName(line) {
+            EmbedView(note: note, name: name)
+        } else if let m = NoteText.checkPattern.firstMatch(in: line, range: full),
            ns.substring(with: m.range(at: 2)).trimmingCharacters(in: .whitespaces).isEmpty {
             Color.clear.frame(height: 6)
         } else if line.range(of: #"^\s*[-*]\s*$"#, options: .regularExpression) != nil {

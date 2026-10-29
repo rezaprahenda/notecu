@@ -308,3 +308,22 @@
 "Sampah · %lld" = "Trash · %lld";
 "Lainnya" = "More";
 "Buat baru…" = "Create new…";
+
+/* Lampiran */
+"Lampiran" = "Attachments";
+"Lampirkan" = "Attach";
+"Lampirkan file (bisa juga diseret ke catatan)" = "Attach files (or drag them onto the note)";
+"Pilih file untuk dilampirkan ke catatan ini" = "Choose files to attach to this note";
+"Catatan terkunci tidak bisa diberi lampiran" = "Locked notes can't have attachments";
+"File terlalu besar (maks. 50 MB)" = "File too large (max 50 MB)";
+"File tidak bisa dilampirkan" = "Couldn't attach the file";
+"Dilampirkan: %@" = "Attached: %@";
+"%lld file dilampirkan" = "%lld files attached";
+"Lampiran dipindahkan ke Sampah Mac" = "Attachment moved to the Mac Trash";
+"File tidak ada di Mac ini" = "File isn't on this Mac";
+"Klik untuk membuka · seret untuk menyalin ke app lain" = "Click to open · drag to copy into another app";
+"Buka file" = "Open file";
+"Tampilkan di Finder" = "Show in Finder";
+"Hapus lampiran" = "Remove attachment";
+"Gambar %@.png" = "Image %@.png";
+"%@ — lampiran tidak ditemukan" = "%@ — attachment not found";

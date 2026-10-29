@@ -44,6 +44,9 @@ struct NoteTextView: NSViewRepresentable {
         scroll.borderType = .noBorder
 
         let tv = scroll.documentView as! NSTextView
+        // File yang diseret ke editor jadi lampiran (lihat FileDropTextView).
+        object_setClass(tv, FileDropTextView.self)
+        tv.registerForDraggedTypes([.fileURL])
         tv.delegate = context.coordinator
         tv.isRichText = false
         tv.importsGraphics = false

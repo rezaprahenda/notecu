@@ -102,7 +102,8 @@ enum Summary {
         let label = whole ? DailyText.monthLabel(String(o.from.prefix(7))) : "\(short(o.from)) – \(short(o.to)) \(o.to.prefix(4))"
 
         func agendaLines(_ n: Item) -> [String] {
-            ["### \(DailyText.shortLabel(n.dailyDate ?? "")) — \(n.displayTitle)\(tags(n))"] + gist(n) + [""]
+            ["### \(DailyText.shortLabel(n.dailyDate ?? "")) — \(n.displayTitle)\(tags(n))"] + gist(n)
+                + (n.isLocked ? [] : n.attachmentList.map { "- 📎 \($0.name)" }) + [""]
         }
         func doneLine(_ t: Item) -> String {
             let d = DueDate.string(Date(timeIntervalSince1970: (t.doneAt ?? 0) / 1000))

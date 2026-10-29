@@ -54,6 +54,7 @@ final class PanelController {
         panel.contentView = host
 
         ui.hidePanel = { [weak self] in self?.hide() }
+        ui.refocusPanel = { [weak self] in self?.panel.makeKey() }
 
         NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in
             self?.panelResignedKey()
@@ -184,7 +185,7 @@ final class PanelController {
     private func panelResignedKey() {
         resignWork?.cancel()
         let w = DispatchWorkItem { [weak self] in
-            guard let self, self.isShown, !self.panel.isKeyWindow, !self.ui.keepOpen else { return }
+            guard let self, self.isShown, !self.panel.isKeyWindow, !self.ui.keepOpen, !self.ui.holdOpen else { return }
             self.hide()
         }
         resignWork = w

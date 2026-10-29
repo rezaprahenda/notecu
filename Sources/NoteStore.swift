@@ -86,7 +86,8 @@ final class NoteStore: ObservableObject {
             case .pinned: if !n.isPinned { return false }
             case .folder(let id): if folderOf(n)?.id != id { return false }
             }
-            if !q.isEmpty && !(n.parts.title + "\n" + n.body).lowercased().contains(q) { return false }
+            if !q.isEmpty && !(n.parts.title + "\n" + n.body).lowercased().contains(q)
+                && attachmentHit(n, q) == nil { return false }
             return true
         }
         .sorted { a, b in
@@ -352,6 +353,7 @@ final class NoteStore: ObservableObject {
     func purgeNote(_ id: String) {
         guard let n = items[id] else { return }
         if pristine.contains(id) { discard(id); return }
+        removeAttachmentFiles(n)
         commit(Item(id: id, kind: n.kind, updatedAt: n.updatedAt, deleted: true, rev: n.rev))
     }
 
