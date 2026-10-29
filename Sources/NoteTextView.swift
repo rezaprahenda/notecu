@@ -216,9 +216,13 @@ struct NoteTextView: NSViewRepresentable {
             para.lineSpacing = 3
             storage.beginEditing()
             storage.addAttribute(.paragraphStyle, value: para, range: full)
+            let baseFont = NoteTextView.font(parent.fontStyle)
             storage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: full)
+            storage.addAttribute(.font, value: baseFont, range: full)
+            let labelFont = NSFont.systemFont(ofSize: 10.5)
             for lr in embedLines {
                 storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: lr)
+                storage.addAttribute(.font, value: labelFont, range: lr)
             }
             for f in found {
                 let p = NSMutableParagraphStyle()
@@ -229,6 +233,7 @@ struct NoteTextView: NSViewRepresentable {
             storage.endEditing()
             tv.typingAttributes[.paragraphStyle] = para
             tv.typingAttributes[.foregroundColor] = NSColor.labelColor
+            tv.typingAttributes[.font] = baseFont
 
             placements = found
             hadEmbeds = !embedLines.isEmpty
