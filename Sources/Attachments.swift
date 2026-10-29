@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// File yang dilampirkan ke catatan (misalnya laporan rapat .docx / .pdf di agenda).
 /// File asli disalin ke ~/Library/Application Support/notecu/attachments/<id>/<nama file>.
 /// Teksnya diambil sekali dan disimpan di sebelahnya supaya ikut terbaca saat mencari.
-/// Lampiran hanya ada di Mac ini (belum ikut sinkron ke server).
+/// Kalau sinkron server aktif, file ikut diunggah ke server dan diunduh di perangkat lain (lihat AttachmentSync).
 struct Attachment: Codable, Equatable, Hashable, Identifiable {
     var id: String
     var name: String
@@ -33,6 +33,9 @@ enum Attachments {
     static func url(_ a: Attachment) -> URL { dir(a.id).appendingPathComponent(a.name) }
     static func textURL(_ id: String) -> URL { dir(id).appendingPathComponent(".notecu-text.txt") }
     static func exists(_ a: Attachment) -> Bool { FileManager.default.fileExists(atPath: url(a).path) }
+    private static func uploadedURL(_ id: String) -> URL { dir(id).appendingPathComponent(".notecu-uploaded") }
+    static func isUploaded(_ a: Attachment) -> Bool { FileManager.default.fileExists(atPath: uploadedURL(a.id).path) }
+    static func markUploaded(_ a: Attachment) { FileManager.default.createFile(atPath: uploadedURL(a.id).path, contents: Data()) }
 
     /// Salin file ke folder notecu. File aslinya tidak diubah.
     static func copyIn(_ src: URL, as name: String? = nil) throws -> Attachment {
@@ -144,6 +147,51 @@ final class AttachmentIndex {
     }
 }
 
+// MARK: - Sinkron file ke server
+
+/// Unggah lampiran baru dan unduh lampiran dari perangkat lain, satu per satu, setelah tiap sinkron.
+final class AttachmentSync {
+    static let shared = AttachmentSync()
+    /// Semua diakses dari main thread.
+    var running = false
+    /// Server lama tanpa /api/files: berhenti mencoba sampai app dibuka ulang.
+    var unsupported = false
+    var skipUpload = Set<String>()
+    var lastFail: [String: Date] = [:]
+    private(set) var downloading = Set<String>()
+
+    func setDownloading(_ ids: Set<String>) { downloading = ids }
+
+    static func upload(_ a: Attachment, to url: URL, token: String) async -> Int {
+        var req = URLRequest(url: url, timeoutInterval: 300)
+        req.httpMethod = "PUT"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        do {
+            let (_, resp) = try await URLSession.shared.upload(for: req, fromFile: Attachments.url(a))
+            return (resp as? HTTPURLResponse)?.statusCode ?? 0
+        } catch {
+            return 0
+        }
+    }
+
+    static func download(_ a: Attachment, from url: URL, token: String) async -> Int {
+        var req = URLRequest(url: url, timeoutInterval: 300)
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard code == 200 else { return code }
+            try FileManager.default.createDirectory(at: Attachments.dir(a.id), withIntermediateDirectories: true)
+            try data.write(to: Attachments.url(a), options: .atomic)
+            Attachments.markUploaded(a)
+            return 200
+        } catch {
+            return 0
+        }
+    }
+}
+
 // MARK: - Di NoteStore
 
 extension NoteStore {
@@ -226,6 +274,58 @@ extension NoteStore {
         return nil
     }
 
+    /// Dipanggil setelah sinkron berhasil: unggah yang belum ada di server, unduh yang belum ada di Mac ini.
+    func syncAttachmentFiles() {
+        let s = AttachmentSync.shared
+        guard prefs.isConfigured, !s.running, !s.unsupported else { return }
+        let all = items.values.filter { $0.isNote && !$0.isDeleted && !$0.isLocked }.flatMap { $0.attachmentList }
+        let now = Date()
+        let uploads = all.filter { Attachments.exists($0) && !Attachments.isUploaded($0) && !s.skipUpload.contains($0.id) }
+        let downloads = all.filter { a in
+            !Attachments.exists(a) && (s.lastFail[a.id].map { now.timeIntervalSince($0) > 600 } ?? true)
+        }
+        guard !uploads.isEmpty || !downloads.isEmpty else { return }
+        let token = prefs.cleanToken
+        let p = prefs
+        let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
+        let urlFor: (Attachment, Bool) -> URL? = { a, get in
+            let name = a.name.addingPercentEncoding(withAllowedCharacters: safe) ?? ""
+            return p.apiURL("api/files/\(a.id)" + (get ? "?name=\(name)" : ""))
+        }
+        s.running = true
+        s.setDownloading(Set(downloads.map(\.id)))
+        Task {
+            var uploaded: [Attachment] = [], tooBig: [String] = [], fetched: [Attachment] = [], failed: [String] = []
+            var unsupported = false
+            for a in uploads {
+                guard let url = urlFor(a, false) else { continue }
+                let code = await AttachmentSync.upload(a, to: url, token: token)
+                if code == 200 || code == 201 { uploaded.append(a) }
+                else if code == 413 { tooBig.append(a.id) }
+                else if code == 404 || code == 405 { unsupported = true; break }
+                else if code == 401 || code == 0 { break }
+            }
+            if !unsupported {
+                for a in downloads {
+                    guard let url = urlFor(a, true) else { continue }
+                    let code = await AttachmentSync.download(a, from: url, token: token)
+                    if code == 200 { fetched.append(a) } else { failed.append(a.id) }
+                    if code == 401 { break }
+                }
+            }
+            DispatchQueue.main.async { [weak self] in
+                for a in uploaded { Attachments.markUploaded(a) }
+                s.skipUpload.formUnion(tooBig)
+                if unsupported { s.unsupported = true }
+                for id in failed { s.lastFail[id] = Date() }
+                s.setDownloading([])
+                s.running = false
+                for a in fetched { self?.indexAttachment(a) }
+                if !fetched.isEmpty { self?.objectWillChange.send() }
+            }
+        }
+    }
+
     /// Hapus file lampiran saat catatan dihapus permanen.
     func removeAttachmentFiles(_ n: Item) {
         for a in n.attachmentList { Attachments.remove(a) }
@@ -294,7 +394,10 @@ struct AttachmentRow: View {
                 }
                 VStack(alignment: .leading, spacing: 0) {
                     Text(verbatim: a.name).font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
-                    Text(verbatim: exists ? Attachments.sizeLabel(a) : L("File tidak ada di Mac ini"))
+                    Text(verbatim: exists ? Attachments.sizeLabel(a)
+                         : AttachmentSync.shared.downloading.contains(a.id) ? L("Mengunduh dari server…")
+                         : store.prefs.isConfigured ? L("Belum ada di Mac ini · akan diunduh saat sinkron")
+                         : L("File tidak ada di Mac ini"))
                         .font(.system(size: 10.5)).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
@@ -331,7 +434,8 @@ final class FileDropTextView: NSTextView {
         let ns = string as NSString
         let loc = min(location ?? selectedRange().location, ns.length)
         let atLineStart = loc == 0 || ns.character(at: loc - 1) == 10
-        let text = (atLineStart ? "" : "\n") + names.map { "![[\($0)]]" }.joined(separator: "\n") + "\n"
+        let nextIsNewline = loc < ns.length && ns.character(at: loc) == 10
+        let text = (atLineStart ? "" : "\n") + names.map { "![[\($0)]]" }.joined(separator: "\n") + (nextIsNewline ? "" : "\n")
         let range = NSRange(location: loc, length: location == nil ? selectedRange().length : 0)
         if shouldChangeText(in: range, replacementString: text) {
             replaceCharacters(in: range, with: text)

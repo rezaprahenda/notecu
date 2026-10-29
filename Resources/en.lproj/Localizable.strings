@@ -327,3 +327,5 @@
 "Hapus lampiran" = "Remove attachment";
 "Gambar %@.png" = "Image %@.png";
 "%@ — lampiran tidak ditemukan" = "%@ — attachment not found";
+"Mengunduh dari server…" = "Downloading from the server…";
+"Belum ada di Mac ini · akan diunduh saat sinkron" = "Not on this Mac yet · will download on next sync";

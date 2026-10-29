@@ -25,6 +25,8 @@ struct NoteTextView: NSViewRepresentable {
     var autofocus: Bool = true
     /// "sans" atau "serif"
     var fontStyle: String = "sans"
+    /// Lampiran catatan: gambar di baris ![[nama]] ditampilkan di bawah barisnya.
+    var attachments: [Attachment] = []
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -68,6 +70,11 @@ struct NoteTextView: NSViewRepresentable {
         tv.string = text
 
         context.coordinator.textView = tv
+        context.coordinator.lastAttachments = attachments
+        tv.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.frameChanged),
+                                               name: NSView.frameDidChangeNotification, object: tv)
+        context.coordinator.scheduleEmbeds()
         context.coordinator.lastFocus = focusToken
         context.coordinator.lastChecklist = checklistToken
         context.coordinator.lastSecret = secretToken
@@ -90,6 +97,11 @@ struct NoteTextView: NSViewRepresentable {
             let f = NoteTextView.font(fontStyle)
             tv.font = f
             tv.typingAttributes[.font] = f
+            c.scheduleEmbeds()
+        }
+        if attachments != c.lastAttachments {
+            c.lastAttachments = attachments
+            c.scheduleEmbeds()
         }
 
         if tv.string != text {
@@ -98,6 +110,7 @@ struct NoteTextView: NSViewRepresentable {
             tv.string = text
             let len = (text as NSString).length
             tv.setSelectedRange(NSRange(location: min(sel.location, len), length: 0))
+            c.scheduleEmbeds()
         }
         if focusToken != c.lastFocus {
             c.lastFocus = focusToken
@@ -137,6 +150,11 @@ struct NoteTextView: NSViewRepresentable {
         var lastLink = 0
         private var lastQuery: String?
         var lastFont = ""
+        var lastAttachments: [Attachment] = []
+        private var embedPending = false
+        private var hadEmbeds = false
+        private var placements: [(range: NSRange, image: NSImage, url: URL, size: CGSize)] = []
+        private var embedViews: [EmbedImageView] = []
 
         private static let listPattern = try! NSRegularExpression(pattern: #"^(\s*)(- \[[ xX]\] |- |\* |\d+[.)] )"#)
 
@@ -146,6 +164,107 @@ struct NoteTextView: NSViewRepresentable {
             guard let tv = textView else { return }
             parent.onChange(tv.string)
             reportLinkQuery()
+            scheduleEmbeds()
+        }
+
+        // MARK: Gambar di mode Tulis
+
+        /// Hitung ulang sekali di putaran berikutnya (bukan di tengah proses mengetik).
+        func scheduleEmbeds() {
+            guard !embedPending else { return }
+            embedPending = true
+            DispatchQueue.main.async { [weak self] in
+                self?.embedPending = false
+                self?.applyEmbeds()
+            }
+        }
+
+        @objc func frameChanged() { layoutEmbeds() }
+
+        /// Baris ![[gambar]] diberi ruang di bawahnya (paragraphSpacing) dan teksnya dibuat redup.
+        /// Teks catatan sendiri tidak berubah sama sekali.
+        private func applyEmbeds() {
+            guard let tv = textView, let storage = tv.textStorage, let tc = tv.textContainer else { return }
+            let ns = tv.string as NSString
+            var found: [(range: NSRange, image: NSImage, url: URL, size: CGSize)] = []
+            var embedLines: [NSRange] = []
+            let maxW = max(80, tv.bounds.width - tv.textContainerInset.width * 2 - tc.lineFragmentPadding * 2)
+
+            if tv.string.contains("![[") {
+                var start = 0
+                while start < ns.length {
+                    let lr = ns.lineRange(for: NSRange(location: start, length: 0))
+                    let line = ns.substring(with: lr).trimmingCharacters(in: .newlines)
+                    if let name = NoteText.embedName(line) {
+                        embedLines.append(lr)
+                        if let a = parent.attachments.first(where: { $0.name.lowercased() == name.lowercased() }),
+                           Attachments.isImage(a), Attachments.exists(a),
+                           let img = Attachments.image(a), img.size.width > 0, img.size.height > 0 {
+                            var size = CGSize(width: min(img.size.width, maxW), height: 0)
+                            size.height = img.size.height * size.width / img.size.width
+                            if size.height > 200 { size = CGSize(width: size.width * 200 / size.height, height: 200) }
+                            found.append((lr, img, Attachments.url(a), size))
+                        }
+                    }
+                    start = NSMaxRange(lr)
+                }
+            }
+            guard hadEmbeds || !embedLines.isEmpty else { return }
+
+            let full = NSRange(location: 0, length: ns.length)
+            let para = NSMutableParagraphStyle()
+            para.lineSpacing = 3
+            storage.beginEditing()
+            storage.addAttribute(.paragraphStyle, value: para, range: full)
+            storage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: full)
+            for lr in embedLines {
+                storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: lr)
+            }
+            for f in found {
+                let p = NSMutableParagraphStyle()
+                p.lineSpacing = 3
+                p.paragraphSpacing = f.size.height + 12
+                storage.addAttribute(.paragraphStyle, value: p, range: f.range)
+            }
+            storage.endEditing()
+            tv.typingAttributes[.paragraphStyle] = para
+            tv.typingAttributes[.foregroundColor] = NSColor.labelColor
+
+            placements = found
+            hadEmbeds = !embedLines.isEmpty
+            layoutEmbeds()
+        }
+
+        /// Taruh gambar tepat di bawah barisnya.
+        private func layoutEmbeds() {
+            guard let tv = textView, let lm = tv.layoutManager, let tc = tv.textContainer else { return }
+            let ns = tv.string as NSString
+            var shown = 0
+            if !placements.isEmpty { lm.ensureLayout(for: tc) }
+            for p in placements where NSMaxRange(p.range) <= ns.length {
+                var len = p.range.length
+                while len > 1 && ns.character(at: p.range.location + len - 1) == 10 { len -= 1 }
+                let glyphs = lm.glyphRange(forCharacterRange: NSRange(location: p.range.location, length: max(1, len)),
+                                           actualCharacterRange: nil)
+                guard glyphs.length > 0 else { continue }
+                let used = lm.lineFragmentUsedRect(forGlyphAt: NSMaxRange(glyphs) - 1, effectiveRange: nil)
+                let origin = tv.textContainerOrigin
+                let frame = NSRect(x: origin.x + tc.lineFragmentPadding, y: origin.y + used.maxY + 5,
+                                   width: p.size.width, height: p.size.height)
+                let v: EmbedImageView
+                if shown < embedViews.count {
+                    v = embedViews[shown]
+                } else {
+                    v = EmbedImageView()
+                    tv.addSubview(v)
+                    embedViews.append(v)
+                }
+                v.image = p.image
+                v.url = p.url
+                v.frame = frame
+                shown += 1
+            }
+            while embedViews.count > shown { embedViews.removeLast().removeFromSuperview() }
         }
 
         func textViewDidChangeSelection(_ notification: Notification) { reportLinkQuery() }
@@ -250,5 +369,32 @@ struct NoteTextView: NSViewRepresentable {
                 tv.insertText("\n- [ ] ", replacementRange: NSRange(location: end, length: 0))
             }
         }
+    }
+}
+
+/// Gambar di dalam editor. Klik untuk membuka file-nya.
+final class EmbedImageView: NSImageView {
+    var url: URL?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        imageScaling = .scaleProportionallyUpOrDown
+        isEditable = false
+        wantsLayer = true
+        layer?.cornerRadius = 6
+        layer?.masksToBounds = true
+        layer?.borderWidth = 0.5
+        layer?.borderColor = NSColor.separatorColor.cgColor
+        unregisterDraggedTypes()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func mouseDown(with event: NSEvent) {
+        if let url { NSWorkspace.shared.open(url) }
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .pointingHand)
     }
 }

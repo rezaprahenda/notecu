@@ -35,7 +35,7 @@ no server, no internet needed.
 - **Attachments 📎**: drop a report (`.docx`, `.pdf`, …) onto an agenda or any note, or use the paperclip.
   The original file is kept as is, and its text is indexed — searching finds words *inside* the attachment
 - **Images in the note**: paste a screenshot (⌘V) or drop an image — it's attached and placed as `![[image.png]]`
-  where your cursor is, and shown inline in Read mode
+  where your cursor is, and shown inline — also while you write
 
 **To-dos**
 - Due dates and times, ★ important, folders, tags, reminders in Notification Center
@@ -114,8 +114,9 @@ Dates like `3/11` are read day/month (3 November).
 ## Your data
 
 - Stored in `~/Library/Application Support/notecu/cache.json`
-- Attachments are copied to `~/Library/Application Support/notecu/attachments/`. They stay on this Mac
-  (they don't sync and aren't part of the JSON backup) and aren't encrypted, so locked notes can't have them
+- Attachments are copied to `~/Library/Application Support/notecu/attachments/`. With sync on, they're uploaded
+  to your notecu server and downloaded on your other devices. They aren't part of the JSON backup and aren't
+  encrypted, so locked notes can't have them
 - **Settings → General → Data** to back up to JSON, restore, or reveal the folder in Finder
 - The secrets password is not saved anywhere — **if you forget it, locked content can't be recovered**
 

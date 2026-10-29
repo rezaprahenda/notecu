@@ -499,6 +499,7 @@ final class NoteStore: ObservableObject {
         seq = res.seq
         status = dirty.isEmpty ? .ok : .saving
         scheduleSave()
+        syncAttachmentFiles()
 
         if again {
             again = false

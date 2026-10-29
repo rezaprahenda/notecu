@@ -1284,7 +1284,8 @@ struct EditorView: View {
                              linkTitle: linkTitle,
                              firstLinkCandidate: { q in store.linkCandidates(q, excluding: note.id).first ?? (q.trimmingCharacters(in: .whitespaces).isEmpty ? nil : q) },
                              autofocus: !ui.wantsTitleFocus,
-                             fontStyle: fontStyle)
+                             fontStyle: fontStyle,
+                             attachments: note.attachmentList)
                     .id(note.id)
             }
 
