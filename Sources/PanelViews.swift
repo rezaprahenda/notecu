@@ -41,6 +41,9 @@ final class PanelUI: ObservableObject {
     var hidePanel: () -> Void = {}
     /// Jadikan panel aktif lagi (setelah jendela pilih file ditutup).
     var refocusPanel: () -> Void = {}
+    /// Ubah lebar panel mengikuti posisi x kursor (layar).
+    var resizePanel: (CGFloat) -> Void = { _ in }
+    var relayoutPanel: () -> Void = {}
     /// Jangan tutup panel walau kehilangan fokus (misalnya saat memilih file).
     var holdOpen = false
 }
@@ -98,6 +101,9 @@ struct PanelRootView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
         )
+        .overlay(alignment: prefs.edge == "left" ? .trailing : .leading) {
+            ResizeHandle(ui: ui, onReset: { prefs.panelWidth = 360; ui.relayoutPanel() })
+        }
         .onChange(of: ui.openID) { old, new in
             if let old { store.closeNote(old) }
             if let new { store.noteOpened(new) }
@@ -106,6 +112,39 @@ struct PanelRootView: View {
 }
 
 /// Logo notecu kecil: huruf n gelap dengan sudut terlipat di atas kuning (sama dengan ikon app).
+/// Tepi dalam panel: tarik untuk mengubah lebar, klik dua kali untuk kembali ke 360.
+struct ResizeHandle: View {
+    @ObservedObject var ui: PanelUI
+    let onReset: () -> Void
+    @State private var hover = false
+    @State private var dragging = false
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.accentColor.opacity(dragging ? 0.35 : hover ? 0.18 : 0))
+            .frame(width: 5)
+            .padding(.vertical, 18)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                hover = inside
+                if inside { NSCursor.resizeLeftRight.push() } else if !dragging { NSCursor.pop() }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { _ in
+                        dragging = true
+                        ui.resizePanel(NSEvent.mouseLocation.x)
+                    }
+                    .onEnded { _ in
+                        dragging = false
+                        if !hover { NSCursor.pop() }
+                    }
+            )
+            .onTapGesture(count: 2, perform: onReset)
+            .help("Tarik untuk mengubah lebar · klik dua kali untuk ukuran awal")
+    }
+}
+
 struct NotecuMark: View {
     var body: some View {
         GeometryReader { geo in

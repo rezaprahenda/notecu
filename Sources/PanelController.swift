@@ -54,6 +54,8 @@ final class PanelController {
         panel.contentView = host
 
         ui.hidePanel = { [weak self] in self?.hide() }
+        ui.resizePanel = { [weak self] x in self?.resize(toMouseX: x) }
+        ui.relayoutPanel = { [weak self] in self?.relayout() }
         ui.refocusPanel = { [weak self] in self?.panel.makeKey() }
 
         NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in
@@ -201,7 +203,7 @@ final class PanelController {
 
     private func frames(on screen: NSScreen) -> (shown: NSRect, hidden: NSRect) {
         let vf = screen.visibleFrame
-        let w = CGFloat(min(max(prefs.panelWidth, 300), 560))
+        let w = min(max(CGFloat(prefs.panelWidth), Self.minWidth), Self.maxWidth(vf))
         let margin: CGFloat = 8
         let h = vf.height - margin * 2
         let y = vf.minY + margin
@@ -213,6 +215,21 @@ final class PanelController {
             let shown = NSRect(x: vf.maxX - w - margin, y: y, width: w, height: h)
             return (shown, shown.offsetBy(dx: slide, dy: 0))
         }
+    }
+
+    static let minWidth: CGFloat = 300
+    static func maxWidth(_ vf: NSRect) -> CGFloat { max(minWidth, min(900, vf.width * 0.7)) }
+
+    /// Tarik tepi dalam panel: lebar mengikuti posisi kursor, langsung disimpan.
+    func resize(toMouseX x: CGFloat) {
+        guard isShown else { return }
+        let vf = (panel.screen ?? currentScreen()).visibleFrame
+        let margin: CGFloat = 8
+        let raw = prefs.edge == "left" ? x - (vf.minX + margin) : (vf.maxX - margin) - x
+        let w = min(max(raw, Self.minWidth), Self.maxWidth(vf)).rounded()
+        guard abs(CGFloat(prefs.panelWidth) - w) >= 1 else { return }
+        prefs.panelWidth = Double(w)
+        panel.setFrame(frames(on: panel.screen ?? currentScreen()).shown, display: true, animate: false)
     }
 
     /// Dipanggil saat lebar / sisi diubah di pengaturan.

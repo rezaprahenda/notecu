@@ -64,7 +64,7 @@ private struct GeneralTab: View {
                 Toggle("Buka saat kursor didorong ke tepi layar", isOn: $prefs.hoverOpen)
                 HStack {
                     Text("Lebar panel")
-                    Slider(value: $prefs.panelWidth, in: 300...560, step: 10) { _ in onLayoutChange() }
+                    Slider(value: $prefs.panelWidth, in: 300...900, step: 10) { _ in onLayoutChange() }
                     Text(verbatim: "\(Int(prefs.panelWidth))").monospacedDigit().foregroundStyle(.secondary).frame(width: 34)
                 }
                 Picker("Huruf isi catatan", selection: $prefs.noteFont) {
